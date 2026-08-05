@@ -1,14 +1,33 @@
 // ------------------------------------------------------------
-// 入金消込デモのドメイン型定義（指示書 §3・§5）
+// 入金消込デモのドメイン型定義（指示書 §3・§5 + 基幹連携化・取引先マスタ改修）
 // ------------------------------------------------------------
 
 export type Role = "staff" | "manager";
 
-// ---- 請求（債権） ----
+// ---- 取引先マスタ（販売管理システムと同期。1顧客ID : N振込名義） ----
+
+export type AliasKind = "official" | "old_name" | "kana_alias" | "personal" | "learned";
+
+export type PayerAlias = {
+  alias: string; // 正規化済みカナ名義
+  kind: AliasKind;
+  note: string | null;
+  addedBy: "sync" | "user"; // sync=連携元マスタ由来 / user=本システムで登録（目検学習など）
+};
+
+export type Customer = {
+  customerId: string; // CUST-001
+  name: string; // 正式社名（マスタ本体は連携元が正・編集不可）
+  kana: string;
+  representativeKana: string | null; // 代表者カナ（個人名義検知用）
+  payerAliases: PayerAlias[];
+};
+
+// ---- 債権（販売管理システムから連携される未消込売掛金） ----
 
 export type InvoiceStatus =
-  | "folder" // 請求書フォルダ内（未取込）
-  | "open" // 債権台帳に登録済み・未消込
+  | "unsynced" // 連携待ち（販売管理システム側にあり未同期）
+  | "open" // 債権台帳に同期済み・未消込
   | "in_review" // 目検キューで確認中（入金候補が紐付いている）
   | "pending_approval" // 上長承認待ちの処理に含まれる
   | "cleared_auto" // 自動消込済み
@@ -16,17 +35,14 @@ export type InvoiceStatus =
 
 export type Invoice = {
   invoiceNo: string;
-  customerName: string;
-  customerKana: string; // 正式名の読み（突合に使用）
-  representativeKana: string | null; // 代表者名カナ（個人名義検知用）
-  amount: number; // 税込請求額
+  voucherNo: string; // 連携元の売上伝票番号
+  customerId: string; // 取引先マスタ参照
+  amount: number; // 税込請求額（売掛金は請求時点で計上済み）
   issueDate: string; // ISO
   dueDate: string; // ISO
-  staffName: string; // 担当営業（""=欠損）
-  fileName: string; // 取込元ファイル名
-  fileKind: "pdf" | "csv";
+  staffName: string; // 担当営業（""=連携データ欠損）
   status: InvoiceStatus;
-  warning: string | null; // 取込時の警告（欠損補完など）
+  warning: string | null; // 連携時の整合性チェック警告（欠損補完など）
   clearedBy: string | null; // 消込実行者
   clearedAtLabel: string | null; // 消込日時ラベル
   paymentIds: string[]; // 紐付いた入金
@@ -60,8 +76,8 @@ export type MatchType =
   | "exact" // B-1 完全一致
   | "fee_tolerance" // B-2 手数料差
   | "name_fuzzy" // B-3 あいまい名義
-  | "old_name" // B-3 旧社名辞書
-  | "learned" // D-3 学習済み辞書（自動一致）
+  | "old_name" // B-3 マスタの旧社名・別名一致
+  | "learned" // D-3 学習済み名義（自動一致）
   | "aggregate" // B-4 合算入金
   | "personal" // 個人名義（代表者）
   | "combined" // 名義ゆれ + 手数料差の複合
@@ -78,7 +94,7 @@ export type MatchCandidate = {
   feeAssumed: boolean; // 差額を振込手数料とみなすか
   reasons: string[]; // 人間が読める判断根拠（D-2）
   normalizedPayer: string;
-  dictHit: { from: string; to: string; kind: DictKind } | null;
+  aliasHit: { alias: string; kind: AliasKind; customerName: string } | null; // マスタの振込名義一致
 };
 
 export type MatchClassification = "auto" | "review" | "unapplied";
@@ -96,19 +112,6 @@ export type MatchSettings = {
   feeTolerances: number[]; // 手数料とみなす差額（B-2）
   autoThreshold: number; // 自動消込スコア（95）
   reviewMin: number; // 要目検の下限スコア（60）
-};
-
-// ---- 名義ゆれ辞書 ----
-
-export type DictKind = "old_name" | "kana_alias" | "personal" | "learned";
-
-export type NameDictEntry = {
-  id: string;
-  from: string; // 正規化後の名義（カナ）
-  to: string; // 正式取引先名
-  kind: DictKind;
-  addedBy: "seed" | "user";
-  note: string | null;
 };
 
 // ---- 消込ログ・仕訳・監査（C） ----
@@ -136,6 +139,8 @@ export type JournalEntry = {
   credits: JournalLine[];
   memo: string;
   clearingId: string | null;
+  exported: boolean; // 経理システムへ連携済みか
+  exportedAtLabel: string | null;
 };
 
 export type AuditActor = "ai" | "system" | "staff" | "manager";

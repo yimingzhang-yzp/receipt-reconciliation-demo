@@ -13,6 +13,7 @@ const NAV: { href: string; label: string; icon: IconName; match: (p: string) => 
   { href: "/review", label: "目検キュー", icon: "eye", match: (p) => p.startsWith("/review") },
   { href: "/dunning", label: "督促管理", icon: "mailAlert", match: (p) => p.startsWith("/dunning") },
   { href: "/approval", label: "承認", icon: "userCheck", match: (p) => p.startsWith("/approval") },
+  { href: "/customers", label: "取引先マスタ", icon: "book", match: (p) => p.startsWith("/customers") },
   { href: "/audit", label: "消込ログ・監査", icon: "shield", match: (p) => p.startsWith("/audit") },
   { href: "/settings", label: "設定", icon: "sliders", match: (p) => p.startsWith("/settings") },
 ];

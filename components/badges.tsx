@@ -3,10 +3,10 @@ import {
   ACTOR_STYLE,
   AGING_LABEL,
   AGING_STYLE,
+  ALIAS_KIND_LABEL,
+  ALIAS_KIND_STYLE,
   CLASSIFICATION_LABEL,
   CLASSIFICATION_STYLE,
-  DICT_KIND_LABEL,
-  DICT_KIND_STYLE,
   DUNNING_STATUS_LABEL,
   DUNNING_STATUS_STYLE,
   INVOICE_STATUS_LABEL,
@@ -20,8 +20,8 @@ import {
 } from "@/lib/format";
 import { agingBucket } from "@/lib/matching";
 import type {
+  AliasKind,
   AuditActor,
-  DictKind,
   DunningStatus,
   InvoiceStatus,
   MatchClassification,
@@ -89,8 +89,8 @@ export function DunningStatusBadge({ status }: { status: DunningStatus }) {
   return <span className={`${chipBase} ${DUNNING_STATUS_STYLE[status]}`}>{DUNNING_STATUS_LABEL[status]}</span>;
 }
 
-export function DictKindBadge({ kind }: { kind: DictKind }) {
-  return <span className={`${chipSm} ${DICT_KIND_STYLE[kind]}`}>{DICT_KIND_LABEL[kind]}</span>;
+export function AliasKindBadge({ kind }: { kind: AliasKind }) {
+  return <span className={`${chipSm} ${ALIAS_KIND_STYLE[kind]}`}>{ALIAS_KIND_LABEL[kind]}</span>;
 }
 
 export function MethodBadge({ method }: { method: "auto" | "manual" | "approval" }) {

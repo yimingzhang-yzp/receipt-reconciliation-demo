@@ -3,9 +3,10 @@
 // ------------------------------------------------------------
 
 import type {
+  AliasKind,
   ApprovalType,
   AuditActor,
-  DictKind,
+  Customer,
   DunningStatus,
   InvoiceStatus,
   MatchClassification,
@@ -48,7 +49,7 @@ export const CLASSIFICATION_STYLE: Record<MatchClassification | "dunning", { chi
 // ---- 請求ステータス ----
 
 export const INVOICE_STATUS_LABEL: Record<InvoiceStatus, string> = {
-  folder: "未取込",
+  unsynced: "連携待ち",
   open: "未消込",
   in_review: "目検中",
   pending_approval: "上長承認待ち",
@@ -57,7 +58,7 @@ export const INVOICE_STATUS_LABEL: Record<InvoiceStatus, string> = {
 };
 
 export const INVOICE_STATUS_STYLE: Record<InvoiceStatus, { chip: string; dot: string }> = {
-  folder: { chip: "bg-surface-sunken text-ink-soft border-line", dot: "bg-ink-faint" },
+  unsynced: { chip: "bg-surface-sunken text-ink-soft border-line", dot: "bg-ink-faint" },
   open: { chip: "bg-brand-50 text-brand-700 border-brand-200", dot: "bg-brand-500" },
   in_review: { chip: "bg-amber-50 text-amber-700 border-amber-200", dot: "bg-amber-500" },
   pending_approval: { chip: "bg-brand-50 text-brand-700 border-brand-200", dot: "bg-brand-500" },
@@ -95,8 +96,8 @@ export const MATCH_TYPE_LABEL: Record<MatchType, string> = {
   exact: "完全一致",
   fee_tolerance: "手数料差",
   name_fuzzy: "名義ゆれ",
-  old_name: "旧社名",
-  learned: "学習済み一致",
+  old_name: "旧社名・別名",
+  learned: "マスタ学習一致",
   aggregate: "合算入金",
   personal: "個人名義",
   combined: "名義ゆれ+手数料",
@@ -147,21 +148,32 @@ export const DUNNING_STATUS_STYLE: Record<DunningStatus, string> = {
   no_reaction: "bg-orange-50 text-orange-700 border-orange-200",
 };
 
-// ---- 辞書・承認・実行者 ----
+// ---- 取引先マスタ（振込名義）・承認・実行者 ----
 
-export const DICT_KIND_LABEL: Record<DictKind, string> = {
+export const ALIAS_KIND_LABEL: Record<AliasKind, string> = {
+  official: "正規名義",
   old_name: "旧社名",
   kana_alias: "カナ別名",
   personal: "個人名義",
   learned: "学習済み",
 };
 
-export const DICT_KIND_STYLE: Record<DictKind, string> = {
+export const ALIAS_KIND_STYLE: Record<AliasKind, string> = {
+  official: "bg-surface-sunken text-ink-soft border-line",
   old_name: "bg-brand-50 text-brand-700 border-brand-200",
-  kana_alias: "bg-surface-sunken text-ink-soft border-line",
+  kana_alias: "bg-brand-50 text-brand-700 border-brand-200",
   personal: "bg-orange-50 text-orange-700 border-orange-200",
   learned: "bg-emerald-50 text-emerald-700 border-emerald-200",
 };
+
+/** 取引先マスタのjoinヘルパ */
+export function customerOf(customers: Customer[], customerId: string): Customer | undefined {
+  return customers.find((c) => c.customerId === customerId);
+}
+
+export function customerNameOf(customers: Customer[], customerId: string): string {
+  return customerOf(customers, customerId)?.name ?? "（取引先不明）";
+}
 
 export const APPROVAL_TYPE_LABEL: Record<ApprovalType, string> = {
   overpay_transfer: "過入金の振替消込",

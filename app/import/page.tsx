@@ -2,28 +2,29 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useDemoStore } from "@/lib/store";
-import { buildFbRawLines, fakeFileSize, FOLDER_DUPLICATE } from "@/lib/data";
+import { buildFbRawLines, FEED_DUPLICATE, SOURCE_SYSTEM } from "@/lib/data";
 import { normalizePayerName } from "@/lib/matching";
-import { formatDate, formatDateShort, yen } from "@/lib/format";
+import { customerNameOf, customerOf, formatDate, formatDateShort, yen } from "@/lib/format";
 import { Button, Card, HeroBanner, LinkButton, SectionTitle, Spinner, Td, Th } from "@/components/ui";
-import { InvoiceStatusBadge, WarnBadge, DictKindBadge, AgentAvatar } from "@/components/badges";
+import { InvoiceStatusBadge, WarnBadge, AliasKindBadge, AgentAvatar } from "@/components/badges";
 import { Icon } from "@/components/icons";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-type FolderFile = {
-  fileName: string;
-  fileKind: "pdf" | "csv";
-  invoiceNo: string | null; // null = 重複ファイル
+// 販売管理システムから流れてくる債権レコード（未消込売掛金の一覧 + 整合性チェック用の重複伝票）
+type FeedRecord = {
+  voucherNo: string;
+  invoiceNo: string;
   customerName: string;
-  amount: number | null;
-  warning: string | null;
+  amount: number;
+  dueDate: string;
+  warn: "duplicate" | "missing_staff" | null;
 };
 
 export default function ImportPage() {
+  const customers = useDemoStore((s) => s.customers);
   const invoices = useDemoStore((s) => s.invoices);
   const payments = useDemoStore((s) => s.payments);
-  const dict = useDemoStore((s) => s.dict);
   const invoicesImported = useDemoStore((s) => s.invoicesImported);
   const fbFetched = useDemoStore((s) => s.fbFetched);
   const matchingDone = useDemoStore((s) => s.matchingDone);
@@ -31,45 +32,48 @@ export default function ImportPage() {
   const fetchFb = useDemoStore((s) => s.fetchFb);
   const demoDate = useDemoStore((s) => s.demoDate);
 
-  // ---- 請求書フォルダ（A-1）----
-  const [importRunning, setImportRunning] = useState(false);
+  // ---- 債権データ連携（A-1: 販売管理システムから未消込債権を同期）----
+  const [syncRunning, setSyncRunning] = useState(false);
   const [processedCount, setProcessedCount] = useState(invoicesImported ? 999 : 0);
   const [importSummary, setImportSummary] = useState<{ registered: number; duplicates: number; warnings: number } | null>(
     invoicesImported ? { registered: 30, duplicates: 1, warnings: 1 } : null,
   );
+  const feedRef = useRef<HTMLDivElement>(null);
 
-  const folderFiles = useMemo<FolderFile[]>(() => {
-    const files: FolderFile[] = invoices.map((i) => ({
-      fileName: i.fileName,
-      fileKind: i.fileKind,
+  const feed = useMemo<FeedRecord[]>(() => {
+    const records: FeedRecord[] = invoices.map((i) => ({
+      voucherNo: i.voucherNo,
       invoiceNo: i.invoiceNo,
-      customerName: i.customerName,
+      customerName: customerNameOf(customers, i.customerId),
       amount: i.amount,
-      warning: i.warning,
+      dueDate: i.dueDate,
+      warn: i.warning ? "missing_staff" : null,
     }));
-    // 重複ファイルを2番目の直後に混ぜる（A-4 バリデーションのデモ）
-    files.splice(2, 0, {
-      fileName: FOLDER_DUPLICATE.fileName,
-      fileKind: FOLDER_DUPLICATE.fileKind,
-      invoiceNo: null,
-      customerName: "株式会社デルタ食品",
-      amount: null,
-      warning: `請求番号 ${FOLDER_DUPLICATE.duplicateOf} と重複するため取込をスキップ`,
+    // 連携フィードに重複伝票を混ぜる（A-4 整合性チェックのデモ）
+    const dup = invoices.find((i) => i.invoiceNo === FEED_DUPLICATE.invoiceNo);
+    records.splice(2, 0, {
+      voucherNo: FEED_DUPLICATE.voucherNo,
+      invoiceNo: FEED_DUPLICATE.invoiceNo,
+      customerName: FEED_DUPLICATE.customerName,
+      amount: FEED_DUPLICATE.amount,
+      dueDate: dup?.dueDate ?? demoDate,
+      warn: "duplicate",
     });
-    return files;
-  }, [invoices]);
+    return records;
+  }, [invoices, customers, demoDate]);
 
-  async function runImport() {
-    if (importRunning || invoicesImported) return;
-    setImportRunning(true);
-    for (let i = 0; i < folderFiles.length; i++) {
+  async function runSync() {
+    if (syncRunning || invoicesImported) return;
+    setSyncRunning(true);
+    for (let i = 0; i < feed.length; i++) {
       setProcessedCount(i + 1);
+      feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight });
       await sleep(75);
     }
     await sleep(250);
     const summary = importInvoices();
     setImportSummary(summary);
-    setImportRunning(false);
+    setSyncRunning(false);
   }
 
   // ---- FBデータ取得（A-2）----
@@ -96,20 +100,21 @@ export default function ImportPage() {
 
   const fbTotal = payments.reduce((s, p) => s + p.amount, 0);
   const bothReady = invoicesImported && fbFetched;
+  const shownFeed = invoicesImported ? feed : feed.slice(0, processedCount);
 
   return (
     <div className="space-y-8">
       <HeroBanner
         eyebrow="DATA INTAKE"
         title="データ取込"
-        description="請求書フォルダからの債権台帳の作成と、銀行FBデータ（全銀フォーマット）の取得・正規化を行います。本番では請求書AI-OCRと銀行APIに置き換わる部分です。"
+        description={`${SOURCE_SYSTEM}からの未消込債権の同期と、銀行FBデータ（全銀フォーマット）の取得・正規化を行います。売掛金は請求時点で計上済みのため、ここでは「計上済み売掛金（未消込分）」を同期します。`}
       />
 
       {bothReady && !matchingDone && (
         <div className="flex flex-col items-start gap-3 rounded-xl border border-brand-200 bg-brand-50 px-5 py-4 sm:flex-row sm:items-center">
           <AgentAvatar size="h-9 w-9" />
           <p className="flex-1 text-sm text-ink-soft">
-            債権台帳（{invoices.filter((i) => i.status !== "folder").length}件）と入金明細（{payments.length}件）が揃いました。自動突合を実行できます。
+            債権台帳（{invoices.filter((i) => i.status !== "unsynced").length}件）と入金明細（{payments.length}件）が揃いました。自動突合を実行できます。
           </p>
           <LinkButton href="/matching" variant="ai" size="md">
             <Icon name="sparkles" className="h-4 w-4" /> 自動突合を実行
@@ -118,85 +123,87 @@ export default function ImportPage() {
       )}
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        {/* ---- 請求書フォルダ ---- */}
+        {/* ---- 販売管理システム連携（債権データ取込） ---- */}
         <Card padded={false} className="flex flex-col">
           <div className="border-b border-surface-border px-5 pb-4 pt-5">
             <SectionTitle
-              sub="共有フォルダの請求書ファイルから請求情報を抽出（本番ではAI-OCR）"
+              sub={`連携元: ${SOURCE_SYSTEM} ※本番では基幹システムのAPI/CSV連携に置き換わります`}
               right={
-                <Button variant="ai" size="sm" onClick={runImport} disabled={importRunning || invoicesImported} className={importRunning ? "ai-gradient-anim" : ""}>
-                  {importRunning ? (
+                <Button variant="ai" size="sm" onClick={runSync} disabled={syncRunning || invoicesImported} className={syncRunning ? "ai-gradient-anim" : ""}>
+                  {syncRunning ? (
                     <>
-                      <Spinner /> 抽出中… {Math.min(processedCount, folderFiles.length)}/{folderFiles.length}
+                      <Spinner /> 同期中… {Math.min(processedCount, feed.length)}/{feed.length}
                     </>
                   ) : invoicesImported ? (
                     <>
-                      <Icon name="checkCircle" className="h-4 w-4" /> 取込済み
+                      <Icon name="checkCircle" className="h-4 w-4" /> 同期済み
                     </>
                   ) : (
                     <>
-                      <Icon name="sparkles" className="h-4 w-4" /> 取込実行
+                      <Icon name="briefcase" className="h-4 w-4" /> 債権データを同期
                     </>
                   )}
                 </Button>
               }
             >
-              請求書フォルダ
+              債権データ連携
             </SectionTitle>
-            {importSummary && (
+            {importSummary ? (
               <div className="mt-1 flex flex-wrap items-center gap-2 text-[13px]">
                 <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 font-medium text-emerald-700">
-                  <Icon name="checkCircle" className="h-3.5 w-3.5" /> {importSummary.registered}件を債権台帳へ登録
+                  <Icon name="checkCircle" className="h-3.5 w-3.5" /> {importSummary.registered}件を債権台帳へ同期
                 </span>
-                <WarnBadge>重複スキップ {importSummary.duplicates}件</WarnBadge>
+                <WarnBadge>重複伝票スキップ {importSummary.duplicates}件</WarnBadge>
                 <WarnBadge>欠損補完 {importSummary.warnings}件</WarnBadge>
               </div>
+            ) : (
+              <p className="mt-1 text-[12px] text-ink-muted">
+                売上伝票{feed.length}件（未消込売掛金）が連携待ちです。同期時に重複・欠損の整合性チェックを行います。
+              </p>
             )}
           </div>
-          <div className="max-h-[430px] overflow-y-auto">
-            <ul className="divide-y divide-line-subtle">
-              {folderFiles.map((f, idx) => {
-                const processed = invoicesImported || processedCount > idx;
-                const processing = importRunning && processedCount === idx + 1;
-                const isDup = f.invoiceNo === null;
-                return (
-                  <li key={f.fileName} className={`flex items-center gap-3 px-5 py-2.5 ${processed && isDup ? "opacity-60" : ""}`}>
-                    <span className={`flex h-8 w-8 flex-none items-center justify-center rounded-lg ${f.fileKind === "pdf" ? "bg-rose-50 text-rose-500" : "bg-emerald-50 text-emerald-600"}`}>
-                      <Icon name="fileText" className="h-4 w-4" />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-[13px] font-medium text-ink" title={f.fileName}>
-                        {f.fileName}
+          <div ref={feedRef} className="max-h-[430px] min-h-[200px] overflow-y-auto">
+            {shownFeed.length === 0 ? (
+              <p className="px-5 py-16 text-center text-sm text-ink-faint">
+                「債権データを同期」を押すと、{SOURCE_SYSTEM}から債権レコードがここに流れ込みます…
+              </p>
+            ) : (
+              <ul className="divide-y divide-line-subtle">
+                {shownFeed.map((rec, idx) => {
+                  const processing = syncRunning && processedCount === idx + 1;
+                  const isDup = rec.warn === "duplicate";
+                  return (
+                    <li key={`${rec.voucherNo}-${idx}`} className={`row-reveal flex items-center gap-3 px-5 py-2.5 ${isDup && !processing ? "opacity-60" : ""}`}>
+                      <span className={`flex h-8 w-8 flex-none items-center justify-center rounded-lg ${isDup ? "bg-amber-50 text-amber-600" : "bg-brand-50 text-brand-600"}`}>
+                        <Icon name="fileText" className="h-4 w-4" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 text-[13px]">
+                          <span className="font-mono font-medium text-ink">{rec.voucherNo}</span>
+                          <span className="truncate text-ink-soft" title={rec.customerName}>{rec.customerName}</span>
+                        </div>
+                        <div className="mt-0.5 flex items-center gap-2 text-[11px] tabular-nums text-ink-muted">
+                          <span>{rec.invoiceNo}</span>
+                          <span>{yen(rec.amount)}</span>
+                          <span>期日 {formatDateShort(rec.dueDate)}</span>
+                        </div>
                       </div>
-                      <div className="mt-0.5 flex items-center gap-2 text-[11px] text-ink-muted">
-                        <span className="uppercase">{f.fileKind}</span>
-                        <span>{fakeFileSize(idx)}</span>
-                        {processed && !isDup && f.amount !== null && (
-                          <span className="tabular-nums text-ink-soft">
-                            {f.customerName} ／ {yen(f.amount)}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <span className="flex-none">
-                      {processing ? (
-                        <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-brand-200 border-t-brand-500" />
-                      ) : processed ? (
-                        isDup ? (
-                          <WarnBadge>重複スキップ</WarnBadge>
-                        ) : f.warning ? (
+                      <span className="flex-none">
+                        {processing ? (
+                          <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-brand-200 border-t-brand-500" />
+                        ) : isDup ? (
+                          <WarnBadge>重複伝票スキップ</WarnBadge>
+                        ) : rec.warn === "missing_staff" ? (
                           <WarnBadge>欠損補完</WarnBadge>
                         ) : (
                           <Icon name="checkCircle" className="h-4 w-4 text-emerald-500" strokeWidth={2.2} />
-                        )
-                      ) : (
-                        <span className="text-[11px] text-ink-faint">未取込</span>
-                      )}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
+                        )}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </div>
         </Card>
 
@@ -269,7 +276,10 @@ export default function ImportPage() {
                     <tbody>
                       {payments.map((p) => {
                         const norm = normalizePayerName(p.payerNameRaw);
-                        const hit = dict.find((e) => e.from === norm);
+                        // 取引先マスタの振込名義（正規名義以外）に一致した場合はバッジ表示
+                        const hit = customers
+                          .flatMap((c) => c.payerAliases.map((a) => ({ customer: c, alias: a })))
+                          .find((x) => x.alias.alias === norm && x.alias.kind !== "official");
                         return (
                           <tr key={p.id} className="border-t border-line-subtle">
                             <Td className="!py-2 whitespace-nowrap tabular-nums text-ink-muted">{formatDateShort(p.paymentDate)}</Td>
@@ -277,8 +287,8 @@ export default function ImportPage() {
                               <div className="flex flex-wrap items-center gap-1.5">
                                 <span className="font-mono text-ink-soft">{p.payerNameRaw}</span>
                                 <Icon name="chevronRight" className="h-3 w-3 text-ink-faint" />
-                                <span className="font-medium text-ink">{hit ? hit.to : norm}</span>
-                                {hit && <DictKindBadge kind={hit.kind} />}
+                                <span className="font-medium text-ink">{hit ? hit.customer.name : norm}</span>
+                                {hit && <AliasKindBadge kind={hit.alias.kind} />}
                               </div>
                             </Td>
                             <Td className="!py-2 whitespace-nowrap text-right font-semibold tabular-nums text-ink">{yen(p.amount)}</Td>
@@ -298,15 +308,16 @@ export default function ImportPage() {
       {invoicesImported && (
         <Card padded={false} className="overflow-hidden">
           <div className="border-b border-surface-border px-5 pb-3 pt-5">
-            <SectionTitle sub="取込済みの請求一覧（未消込リスト）。突合実行で消込済みに更新されます">
-              債権台帳（{invoices.filter((i) => i.status !== "folder").length}件）
+            <SectionTitle sub="販売管理システムから同期した未消込債権の一覧。突合実行で消込済みに更新されます">
+              債権台帳（{invoices.filter((i) => i.status !== "unsynced").length}件）
             </SectionTitle>
           </div>
           <div className="max-h-[420px] overflow-auto">
-            <table className="w-full min-w-[860px] text-sm">
+            <table className="w-full min-w-[920px] text-sm">
               <thead className="sticky top-0 z-10 bg-surface">
                 <tr className="border-b border-surface-border text-left text-xs font-medium uppercase tracking-wide text-ink-muted">
                   <Th>請求番号</Th>
+                  <Th>売上伝票</Th>
                   <Th>取引先</Th>
                   <Th className="text-right">請求金額</Th>
                   <Th>請求日</Th>
@@ -316,28 +327,32 @@ export default function ImportPage() {
                 </tr>
               </thead>
               <tbody>
-                {invoices.map((i) => (
-                  <tr key={i.invoiceNo} className="row-reveal border-b border-line-subtle last:border-0 hover:bg-surface-sunken">
-                    <Td className="whitespace-nowrap font-mono text-[13px] text-ink-soft">{i.invoiceNo}</Td>
-                    <Td>
-                      <span className="font-medium text-ink">{i.customerName}</span>
-                      <span className="ml-2 text-[11px] text-ink-faint">{i.customerKana}</span>
-                    </Td>
-                    <Td className="whitespace-nowrap text-right font-semibold tabular-nums text-ink">{yen(i.amount)}</Td>
-                    <Td className="whitespace-nowrap tabular-nums text-ink-muted">{formatDate(i.issueDate)}</Td>
-                    <Td className="whitespace-nowrap tabular-nums text-ink-muted">{formatDate(i.dueDate)}</Td>
-                    <Td>
-                      {i.staffName ? (
-                        <span className="text-ink-soft">{i.staffName}</span>
-                      ) : (
-                        <WarnBadge>未設定</WarnBadge>
-                      )}
-                    </Td>
-                    <Td>
-                      <InvoiceStatusBadge status={i.status} />
-                    </Td>
-                  </tr>
-                ))}
+                {invoices.map((i) => {
+                  const c = customerOf(customers, i.customerId);
+                  return (
+                    <tr key={i.invoiceNo} className="row-reveal border-b border-line-subtle last:border-0 hover:bg-surface-sunken">
+                      <Td className="whitespace-nowrap font-mono text-[13px] text-ink-soft">{i.invoiceNo}</Td>
+                      <Td className="whitespace-nowrap font-mono text-[12px] text-ink-muted">{i.voucherNo}</Td>
+                      <Td>
+                        <span className="font-medium text-ink">{c?.name}</span>
+                        <span className="ml-2 text-[11px] text-ink-faint">{c?.customerId}</span>
+                      </Td>
+                      <Td className="whitespace-nowrap text-right font-semibold tabular-nums text-ink">{yen(i.amount)}</Td>
+                      <Td className="whitespace-nowrap tabular-nums text-ink-muted">{formatDate(i.issueDate)}</Td>
+                      <Td className="whitespace-nowrap tabular-nums text-ink-muted">{formatDate(i.dueDate)}</Td>
+                      <Td>
+                        {i.staffName ? (
+                          <span className="text-ink-soft">{i.staffName}</span>
+                        ) : (
+                          <WarnBadge>未設定</WarnBadge>
+                        )}
+                      </Td>
+                      <Td>
+                        <InvoiceStatusBadge status={i.status} />
+                      </Td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

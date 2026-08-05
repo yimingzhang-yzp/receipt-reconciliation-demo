@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useDemoStore } from "@/lib/store";
-import { formatDate, yen } from "@/lib/format";
+import { customerOf, formatDate, yen } from "@/lib/format";
 import type { MatchCandidate, Payment } from "@/lib/types";
 import { Button, Card, EmptyState, Field, HeroBanner, LinkButton, SectionTitle } from "@/components/ui";
 import { AgentAvatar, MatchTypeBadge, PaymentStatusBadge, ScoreBadge } from "@/components/badges";
@@ -20,6 +20,7 @@ export default function ReviewPage() {
 function ReviewInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const customers = useDemoStore((s) => s.customers);
   const invoices = useDemoStore((s) => s.invoices);
   const payments = useDemoStore((s) => s.payments);
   const results = useDemoStore((s) => s.results);
@@ -193,6 +194,7 @@ function ReviewInner() {
                       {best.invoiceNos.map((no) => {
                         const inv = invoiceOf(no);
                         if (!inv) return null;
+                        const c = customerOf(customers, inv.customerId);
                         return (
                           <div key={no} className="rounded-lg border border-line p-4">
                             <div className="flex items-center justify-between">
@@ -200,8 +202,8 @@ function ReviewInner() {
                               <span className="text-[15px] font-bold tabular-nums text-ink">{yen(inv.amount)}</span>
                             </div>
                             <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2.5">
-                              <Field label="取引先">{inv.customerName}</Field>
-                              <Field label="カナ">{inv.customerKana}</Field>
+                              <Field label="取引先">{c?.name}（{c?.customerId}）</Field>
+                              <Field label="カナ">{c?.kana}</Field>
                               <Field label="支払期日">{formatDate(inv.dueDate)}</Field>
                               <Field label="担当営業">{inv.staffName || "未設定"}</Field>
                             </div>
@@ -270,7 +272,15 @@ function ReviewInner() {
                 </div>
                 <ul className="divide-y divide-line-subtle">
                   {result.alternates.map((alt, idx) => (
-                    <AlternateRow key={idx} alt={alt} onSelect={() => chooseAlternate(selected.id, idx)} invoiceName={invoiceOf(alt.invoiceNos[0])?.customerName ?? ""} />
+                    <AlternateRow
+                      key={idx}
+                      alt={alt}
+                      onSelect={() => chooseAlternate(selected.id, idx)}
+                      invoiceName={(() => {
+                        const inv = invoiceOf(alt.invoiceNos[0]);
+                        return inv ? customerOf(customers, inv.customerId)?.name ?? "" : "";
+                      })()}
+                    />
                   ))}
                 </ul>
               </Card>
@@ -308,7 +318,7 @@ function Hero({ count }: { count: number }) {
     <HeroBanner
       eyebrow="HUMAN IN THE LOOP"
       title="目検キュー"
-      description="AIの判断根拠を確認し、承認・差戻し・別候補選択を行います。名義ゆれを辞書登録すると、次回から自動一致になります。"
+      description="AIの判断根拠を確認し、承認・差戻し・別候補選択を行います。名義ゆれを取引先マスタに登録すると、次回から自動一致になります。"
       right={
         <div className="rounded-xl border border-white/10 bg-white/[0.06] px-5 py-4 text-right">
           <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-[#8FB0CC]">要対応</div>
@@ -424,9 +434,9 @@ function ActionPanel({
             className="mt-0.5 h-4 w-4 accent-brand-600"
           />
           <span>
-            この名義ゆれを辞書に登録する
+            この振込名義を取引先マスタに登録する
             <span className="block text-[12px] text-ink-muted">
-              「{payment.payerNameRaw}」→ 候補請求先。次回の突合から自動一致になります（D-3）
+              「{payment.payerNameRaw}」を候補取引先の振込名義レコードとして追加。次回の突合から自動一致になります（D-3）
             </span>
           </span>
         </label>

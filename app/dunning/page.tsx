@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { useDemoStore } from "@/lib/store";
 import { diffDays } from "@/lib/dates";
-import { formatDate, yen } from "@/lib/format";
+import { customerNameOf, formatDate, yen } from "@/lib/format";
 import type { DunningCase, DunningStatus, Invoice } from "@/lib/types";
 import { Button, Card, EmptyState, HeroBanner, LinkButton } from "@/components/ui";
 import { AgingBadge, DunningStatusBadge } from "@/components/badges";
@@ -97,6 +97,8 @@ export default function DunningPage() {
 // 1案件分のカード（メール生成・編集・送信・トレース E-1/E-2）
 // ------------------------------------------------------------
 function DunningCard({ d, inv, demoDate }: { d: DunningCase; inv: Invoice; demoDate: string }) {
+  const customers = useDemoStore((s) => s.customers);
+  const customerName = customerNameOf(customers, inv.customerId);
   const generateDunningMail = useDemoStore((s) => s.generateDunningMail);
   const updateDunningDraft = useDemoStore((s) => s.updateDunningDraft);
   const sendDunningMail = useDemoStore((s) => s.sendDunningMail);
@@ -115,7 +117,7 @@ function DunningCard({ d, inv, demoDate }: { d: DunningCase; inv: Invoice; demoD
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line-subtle px-5 py-4">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[15px] font-semibold text-ink">{inv.customerName}</span>
+            <span className="text-[15px] font-semibold text-ink">{customerName}</span>
             <span className="font-mono text-[12px] text-ink-muted">{inv.invoiceNo}</span>
             {d.remindCount > 0 && (
               <span className="rounded border border-orange-200 bg-orange-50 px-1.5 py-0.5 text-[11px] font-medium text-orange-700">

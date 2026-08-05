@@ -16,6 +16,8 @@ export default function AuditPage() {
   const journals = useDemoStore((s) => s.journals);
   const audit = useDemoStore((s) => s.audit);
   const demoDate = useDemoStore((s) => s.demoDate);
+  const exportJournals = useDemoStore((s) => s.exportJournals);
+  const unexportedCount = journals.filter((j) => !j.exported).length;
 
   const [tab, setTab] = useState<Tab>("clearing");
   const [query, setQuery] = useState("");
@@ -58,7 +60,7 @@ export default function AuditPage() {
 
   function downloadJournalCsv() {
     downloadCsv(`仕訳データ_${demoDate}.csv`, [
-      ["仕訳ID", "日付", "借方科目", "借方金額", "貸方科目", "貸方金額", "摘要"],
+      ["仕訳ID", "日付", "借方科目", "借方金額", "貸方科目", "貸方金額", "摘要", "経理連携"],
       ...journals.flatMap((j) => {
         const n = Math.max(j.debits.length, j.credits.length);
         return Array.from({ length: n }, (_, i) => [
@@ -69,6 +71,7 @@ export default function AuditPage() {
           j.credits[i]?.account ?? "",
           j.credits[i]?.amount ?? "",
           i === 0 ? j.memo : "",
+          i === 0 ? (j.exported ? `連携済み（${j.exportedAtLabel ?? ""}）` : "未連携") : "",
         ]);
       }),
     ]);
@@ -79,7 +82,7 @@ export default function AuditPage() {
       <HeroBanner
         eyebrow="AUDIT TRAIL"
         title="消込ログ・監査証跡"
-        description="いつ・誰が・どの根拠で消し込んだかをすべて記録します（内部統制強化）。仕訳データはCSVで会計システムへ連携できます（デモではダウンロードのみ）。"
+        description="いつ・誰が・どの根拠で消し込んだかをすべて記録します（内部統制強化）。消込で生成された仕訳は、経理システムへの連携（モック）またはCSVダウンロードで引き渡せます。"
         right={
           <div className="rounded-xl border border-white/10 bg-white/[0.06] px-5 py-4 text-right">
             <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-[#8FB0CC]">記録済みイベント</div>
@@ -165,11 +168,18 @@ export default function AuditPage() {
       {/* ---- 仕訳データ（C-2） ---- */}
       {tab === "journal" && (
         <Card padded={false} className="overflow-hidden">
-          <div className="flex items-center justify-between border-b border-surface-border px-5 py-3.5">
-            <span className="text-[13px] text-ink-muted">消込結果から自動生成（借方: 普通預金＋支払手数料 ／ 貸方: 売掛金＋仮受金）</span>
-            <Button variant="secondary" size="sm" onClick={downloadJournalCsv} disabled={journals.length === 0}>
-              <Icon name="download" className="h-4 w-4" /> CSVダウンロード
-            </Button>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-surface-border px-5 py-3.5">
+            <span className="text-[13px] text-ink-muted">
+              消込結果から自動生成（借方: 普通預金＋支払手数料 ／ 貸方: 売掛金＋仮受金）。売掛金は請求時点で計上済みのため、ここでは入金消込仕訳のみを作成します
+            </span>
+            <div className="flex items-center gap-2">
+              <Button variant="primary" size="sm" onClick={() => exportJournals()} disabled={unexportedCount === 0}>
+                <Icon name="send" className="h-4 w-4" /> 経理システムへ連携{unexportedCount > 0 ? `（未連携 ${unexportedCount}件）` : ""}
+              </Button>
+              <Button variant="secondary" size="sm" onClick={downloadJournalCsv} disabled={journals.length === 0}>
+                <Icon name="download" className="h-4 w-4" /> CSVダウンロード
+              </Button>
+            </div>
           </div>
           {journals.length === 0 ? (
             <EmptyState icon={<Icon name="fileText" className="h-10 w-10" />} title="仕訳データはまだありません" description="消込が実行されると仕訳が自動生成されます。" />
@@ -183,6 +193,7 @@ export default function AuditPage() {
                     <Th>借方</Th>
                     <Th>貸方</Th>
                     <Th>摘要</Th>
+                    <Th>経理連携</Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -210,6 +221,20 @@ export default function AuditPage() {
                         <span className="block truncate text-[12px] text-ink-muted" title={j.memo}>
                           {j.memo}
                         </span>
+                      </Td>
+                      <Td>
+                        {j.exported ? (
+                          <span
+                            className="inline-flex items-center gap-1 whitespace-nowrap rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[11px] font-medium text-emerald-700"
+                            title={j.exportedAtLabel ?? undefined}
+                          >
+                            <Icon name="checkCircle" className="h-3 w-3" strokeWidth={2.2} /> 連携済み
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 whitespace-nowrap rounded border border-line bg-surface-sunken px-1.5 py-0.5 text-[11px] font-medium text-ink-soft">
+                            未連携
+                          </span>
+                        )}
                       </Td>
                     </tr>
                   ))}
@@ -262,7 +287,7 @@ export default function AuditPage() {
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <ActorBadge actor={e.actor} />
-                      <span className="text-[11px] tabular-nums text-ink-faint">
+                      <span className="text-[11px] tabular-nums text-ink-faint" suppressHydrationWarning>
                         {formatDate(e.demoDate)} {e.atLabel}
                       </span>
                       {e.refId && <span className="font-mono text-[11px] text-ink-faint">{e.refId}</span>}

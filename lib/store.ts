@@ -2,21 +2,24 @@
 
 import { create } from "zustand";
 import {
+  ACCOUNTING_SYSTEM,
   buildDunningMail,
-  buildSeedDict,
+  buildSeedCustomers,
   buildSeedInvoices,
   buildSeedPayments,
   COMPANY,
+  SOURCE_SYSTEM,
 } from "./data";
 import { DEFAULT_SETTINGS, normalizePayerName, runMatching } from "./matching";
 import { addDays, diffDays, nowLabel, todayIso } from "./dates";
 import { yen } from "./format";
 import type {
+  AliasKind,
   ApprovalRequest,
   AuditActor,
   AuditEvent,
   ClearingRecord,
-  DictKind,
+  Customer,
   DunningCase,
   DunningStatus,
   Invoice,
@@ -24,22 +27,22 @@ import type {
   MatchCandidate,
   MatchResult,
   MatchSettings,
-  NameDictEntry,
   Payment,
   Role,
   Toast,
 } from "./types";
 
 // ------------------------------------------------------------
-// デモ用ストア（すべてクライアント側モック。銀行API・メール送信・
-// 会計連携は実接続しない §0）。リロード / デモリセットで初期状態に戻る。
+// デモ用ストア（すべてクライアント側モック。基幹連携・銀行API・メール送信・
+// 経理システム連携は実接続しない）。リロード / デモリセットで初期状態に戻る。
 // ------------------------------------------------------------
 
-type Seq = { clearing: number; journal: number; approval: number; audit: number; dict: number; toast: number };
+type Seq = { clearing: number; journal: number; approval: number; audit: number; toast: number };
 
 type State = {
   demoDate: string; // デモ内日付（督促トレースの経過日数演出用）
   role: Role;
+  customers: Customer[]; // 取引先マスタ（販売管理システムと同期の想定）
   invoices: Invoice[];
   payments: Payment[];
   results: Record<string, MatchResult>; // paymentId → 突合結果
@@ -48,7 +51,6 @@ type State = {
   clearings: ClearingRecord[];
   journals: JournalEntry[];
   audit: AuditEvent[];
-  dict: NameDictEntry[];
   settings: MatchSettings;
   invoicesImported: boolean;
   fbFetched: boolean;
@@ -61,6 +63,7 @@ type State = {
 type ImportSummary = { registered: number; duplicates: number; warnings: number };
 type FbSummary = { count: number; total: number };
 type RunSummary = { auto: number; review: number; unapplied: number; dunning: number };
+type ExportSummary = { count: number; total: number };
 
 type Actions = {
   // 共通
@@ -69,6 +72,8 @@ type Actions = {
   dismissToast: (id: number) => void;
   setRole: (role: Role) => void;
   resetDemo: () => void;
+  customerOf: (customerId: string) => Customer | undefined;
+  customerNameOf: (customerId: string) => string;
 
   // A. データ取込
   importInvoices: () => ImportSummary;
@@ -77,7 +82,7 @@ type Actions = {
   // B. 突合
   executeMatching: () => RunSummary;
 
-  // C. 消込実行（内部でも使用）
+  // C. 消込実行（内部でも使用）・仕訳連携
   executeClearing: (
     paymentId: string,
     cand: MatchCandidate,
@@ -85,9 +90,10 @@ type Actions = {
     executedBy: string,
     transferAmount?: number,
   ) => void;
+  exportJournals: () => ExportSummary;
 
   // D. 目検キュー
-  approveReview: (paymentId: string, registerDict: boolean) => void;
+  approveReview: (paymentId: string, registerAlias: boolean) => void;
   chooseAlternate: (paymentId: string, altIndex: number) => void;
   remandReview: (paymentId: string) => void;
   resolveOverpay: (paymentId: string) => void;
@@ -104,11 +110,11 @@ type Actions = {
   // F. 承認
   decideApproval: (id: string, decision: "approved" | "rejected" | "remanded", comment: string) => void;
 
-  // G. 設定
+  // G. 設定・取引先マスタ
   setApprovalThreshold: (v: number) => void;
   toggleFeeTolerance: (v: number) => void;
-  addDictEntry: (from: string, to: string, kind: DictKind, note?: string) => void;
-  removeDictEntry: (id: string) => void;
+  addPayerAlias: (customerId: string, rawAlias: string, kind: AliasKind, note?: string) => void;
+  removePayerAlias: (customerId: string, alias: string) => void;
 };
 
 function buildInitialState(): Omit<State, "toasts"> {
@@ -116,6 +122,7 @@ function buildInitialState(): Omit<State, "toasts"> {
   return {
     demoDate: today,
     role: "staff",
+    customers: buildSeedCustomers(),
     invoices: buildSeedInvoices(today),
     payments: buildSeedPayments(today),
     results: {},
@@ -130,17 +137,16 @@ function buildInitialState(): Omit<State, "toasts"> {
         demoDate: today,
         actor: "system",
         action: "init",
-        message: "デモ環境を初期化しました（請求書フォルダ31ファイル・FBデータ待機中）",
+        message: `デモ環境を初期化しました（${SOURCE_SYSTEM}の未消込債権31伝票・FBデータ待機中）`,
         refId: null,
       },
     ],
-    dict: buildSeedDict(),
     settings: { ...DEFAULT_SETTINGS, feeTolerances: [...DEFAULT_SETTINGS.feeTolerances] },
     invoicesImported: false,
     fbFetched: false,
     matchingDone: false,
     lastRun: null,
-    seq: { clearing: 1, journal: 1, approval: 1, audit: 2, dict: 4, toast: 1 },
+    seq: { clearing: 1, journal: 1, approval: 1, audit: 2, toast: 1 },
   };
 }
 
@@ -184,22 +190,25 @@ export const useDemoStore = create<State & Actions>((set, get) => ({
     set({ ...buildInitialState(), toasts: [] });
   },
 
+  customerOf: (customerId) => get().customers.find((c) => c.customerId === customerId),
+  customerNameOf: (customerId) => get().customers.find((c) => c.customerId === customerId)?.name ?? "（取引先不明）",
+
   // ------------------------------------------------------------
   // A. データ取込
   // ------------------------------------------------------------
 
   importInvoices: () => {
     const s = get();
-    const targets = s.invoices.filter((i) => i.status === "folder");
+    const targets = s.invoices.filter((i) => i.status === "unsynced");
     const warnings = targets.filter((i) => i.warning).length;
     set((st) => ({
-      invoices: st.invoices.map((i) => (i.status === "folder" ? { ...i, status: "open" } : i)),
+      invoices: st.invoices.map((i) => (i.status === "unsynced" ? { ...i, status: "open" } : i)),
       invoicesImported: true,
     }));
     get().log(
       "ai",
-      "import_invoices",
-      `請求書フォルダから${targets.length}件を抽出し、債権台帳へ登録しました（重複1件スキップ・欠損補完${warnings}件）`,
+      "sync_invoices",
+      `${SOURCE_SYSTEM}から未消込債権${targets.length}件を債権台帳へ同期しました（計上済み売掛金の同期・重複伝票1件スキップ・欠損補完${warnings}件）`,
     );
     return { registered: targets.length, duplicates: 1, warnings };
   },
@@ -224,7 +233,7 @@ export const useDemoStore = create<State & Actions>((set, get) => ({
     const s = get();
     const eligiblePays = s.payments.filter((p) => ["unmatched", "in_review", "unapplied"].includes(p.status));
     const eligibleInvs = s.invoices.filter((i) => ["open", "in_review"].includes(i.status));
-    const outcome = runMatching(eligibleInvs, eligiblePays, s.dict, s.settings, s.demoDate);
+    const outcome = runMatching(eligibleInvs, eligiblePays, s.customers, s.settings, s.demoDate);
 
     let auto = 0;
     let review = 0;
@@ -293,7 +302,7 @@ export const useDemoStore = create<State & Actions>((set, get) => ({
   },
 
   // ------------------------------------------------------------
-  // C. 消込の実行（自動・目検・承認 共通）
+  // C. 消込の実行（自動・目検・承認 共通）・仕訳の経理システム連携
   // ------------------------------------------------------------
 
   executeClearing: (paymentId, cand, method, executedBy, transferAmount = 0) => {
@@ -301,6 +310,7 @@ export const useDemoStore = create<State & Actions>((set, get) => ({
     const pay = s.payments.find((p) => p.id === paymentId);
     if (!pay) return;
     const invs = s.invoices.filter((i) => cand.invoiceNos.includes(i.invoiceNo));
+    const customerName = invs[0] ? get().customerNameOf(invs[0].customerId) : "";
     const clearedAmount = invs.reduce((sum, i) => sum + i.amount, 0);
     const feeAmount = cand.feeAssumed ? Math.max(0, clearedAmount - pay.amount) : 0;
 
@@ -332,8 +342,10 @@ export const useDemoStore = create<State & Actions>((set, get) => ({
       date: s.demoDate,
       debits,
       credits,
-      memo: `${invs.map((i) => i.invoiceNo).join("・")} ${invs[0]?.customerName ?? ""}${feeAmount > 0 ? `（振込手数料 ${yen(feeAmount)} 控除）` : ""}${transferAmount > 0 ? `（差額 ${yen(transferAmount)} を仮受金へ振替）` : ""}`,
+      memo: `${invs.map((i) => i.invoiceNo).join("・")} ${customerName}${feeAmount > 0 ? `（振込手数料 ${yen(feeAmount)} 控除）` : ""}${transferAmount > 0 ? `（差額 ${yen(transferAmount)} を仮受金へ振替）` : ""}`,
       clearingId,
+      exported: false,
+      exportedAtLabel: null,
     };
 
     set((st) => ({
@@ -356,16 +368,34 @@ export const useDemoStore = create<State & Actions>((set, get) => ({
     get().log(
       method === "auto" ? "ai" : method === "approval" ? "manager" : "staff",
       "clearing",
-      `${cand.invoiceNos.join("・")}（${invs[0]?.customerName ?? ""}）を消込 — 実行者: ${executedBy} / スコア${cand.score} / ${clearing.basis.slice(0, 60)}…`,
+      `${cand.invoiceNos.join("・")}（${customerName}）を消込 — 実行者: ${executedBy} / スコア${cand.score} / ${clearing.basis.slice(0, 60)}…`,
       paymentId,
     );
+  },
+
+  exportJournals: () => {
+    const s = get();
+    const targets = s.journals.filter((j) => !j.exported);
+    if (targets.length === 0) return { count: 0, total: 0 };
+    const total = targets.reduce((sum, j) => sum + j.debits.reduce((a, l) => a + l.amount, 0), 0);
+    const label = `${s.demoDate} ${nowLabel()}`;
+    set((st) => ({
+      journals: st.journals.map((j) => (j.exported ? j : { ...j, exported: true, exportedAtLabel: label })),
+    }));
+    get().log(
+      "staff",
+      "export_journals",
+      `仕訳${targets.length}件（借方合計 ${yen(total)}）を${ACCOUNTING_SYSTEM}へ連携しました（モック送信）`,
+    );
+    get().pushToast(`仕訳${targets.length}件を経理システムへ連携しました（モック）`, "success");
+    return { count: targets.length, total };
   },
 
   // ------------------------------------------------------------
   // D. 目検キュー（Human-in-the-loop）
   // ------------------------------------------------------------
 
-  approveReview: (paymentId, registerDict) => {
+  approveReview: (paymentId, registerAlias) => {
     const s = get();
     const r = s.results[paymentId];
     const pay = s.payments.find((p) => p.id === paymentId);
@@ -376,14 +406,14 @@ export const useDemoStore = create<State & Actions>((set, get) => ({
     get().executeClearing(paymentId, cand, "manual", COMPANY.staffLabel);
     get().log("staff", "review_approve", `目検で承認し消込を確定（${cand.invoiceNos.join("・")} / スコア${cand.score}）`, paymentId);
 
-    // D-3: 名義ゆれの辞書学習
-    if (registerDict && ["name_fuzzy", "old_name", "personal", "combined"].includes(cand.matchType)) {
+    // D-3: 振込名義を取引先マスタへ学習登録
+    if (registerAlias && ["name_fuzzy", "old_name", "personal", "combined"].includes(cand.matchType)) {
       const inv = s.invoices.find((i) => i.invoiceNo === cand.invoiceNos[0]);
       if (inv) {
-        const kind: DictKind = cand.matchType === "personal" ? "personal" : "learned";
-        get().addDictEntry(pay.payerNameRaw, inv.customerName, kind, "目検承認時に自動登録");
+        const kind: AliasKind = cand.matchType === "personal" ? "personal" : "learned";
+        get().addPayerAlias(inv.customerId, pay.payerNameRaw, kind, "目検承認時に自動登録");
         get().pushToast(
-          `名義「${pay.payerNameRaw}」を辞書に登録しました。次回の突合から自動一致します`,
+          `振込名義「${pay.payerNameRaw}」を取引先マスタに登録しました。次回の突合から自動一致します`,
           "success",
         );
       }
@@ -424,7 +454,7 @@ export const useDemoStore = create<State & Actions>((set, get) => ({
         r.best?.invoiceNos.includes(i.invoiceNo) && i.status === "in_review" ? { ...i, status: "open" } : i,
       ),
     }));
-    // 差戻しで台帳に戻った請求が期日超過なら督促対象へ
+    // 差戻しで台帳に戻った債権が期日超過なら督促対象へ
     const overdue = (r.best?.invoiceNos ?? [])
       .map((no) => get().invoices.find((i) => i.invoiceNo === no))
       .filter((i): i is Invoice => !!i && i.status === "open" && diffDays(i.dueDate, get().demoDate) > 0);
@@ -452,6 +482,7 @@ export const useDemoStore = create<State & Actions>((set, get) => ({
     if (!r?.best || !pay || r.best.matchType !== "overpayment") return;
     const inv = s.invoices.find((i) => i.invoiceNo === r.best!.invoiceNos[0]);
     if (!inv) return;
+    const customerName = get().customerNameOf(inv.customerId);
     const diff = pay.amount - inv.amount;
 
     if (diff >= s.settings.approvalThreshold) {
@@ -460,7 +491,7 @@ export const useDemoStore = create<State & Actions>((set, get) => ({
       const req: ApprovalRequest = {
         id,
         type: "overpay_transfer",
-        title: `過入金の振替消込（${inv.customerName}）`,
+        title: `過入金の振替消込（${customerName}）`,
         detail: `請求 ${inv.invoiceNo}（${yen(inv.amount)}）に対し入金 ${yen(pay.amount)}。請求額分を消込み、差額 ${yen(diff)} を仮受金へ振替する`,
         amount: diff,
         paymentId,
@@ -536,6 +567,8 @@ export const useDemoStore = create<State & Actions>((set, get) => ({
             credits: [{ account: "仮受金", amount: pay.amount }],
             memo: `不明入金の仮受金計上（名義: ${pay.payerNameRaw}）`,
             clearingId: null,
+            exported: false,
+            exportedAtLabel: null,
           },
         ],
         seq: { ...st.seq, journal: st.seq.journal + 1 },
@@ -553,11 +586,12 @@ export const useDemoStore = create<State & Actions>((set, get) => ({
     const s = get();
     const inv = s.invoices.find((i) => i.invoiceNo === invoiceNo);
     if (!inv) return;
-    const draft = buildDunningMail(inv, s.demoDate);
+    const customerName = get().customerNameOf(inv.customerId);
+    const draft = buildDunningMail(inv, customerName, s.demoDate);
     set((st) => ({
       dunning: st.dunning.map((d) => (d.invoiceNo === invoiceNo ? { ...d, status: "drafted", draft } : d)),
     }));
-    get().log("ai", "dunning_draft", `${inv.customerName}（${invoiceNo}）宛の督促メール文面を自動生成しました`, invoiceNo);
+    get().log("ai", "dunning_draft", `${customerName}（${invoiceNo}）宛の督促メール文面を自動生成しました`, invoiceNo);
   },
 
   updateDunningDraft: (invoiceNo, patch) =>
@@ -568,7 +602,6 @@ export const useDemoStore = create<State & Actions>((set, get) => ({
     })),
 
   sendDunningMail: (invoiceNo) => {
-    const s = get();
     set((st) => ({
       dunning: st.dunning.map((d) =>
         d.invoiceNo === invoiceNo ? { ...d, status: "sent", sentOnDemoDate: st.demoDate } : d,
@@ -628,7 +661,7 @@ export const useDemoStore = create<State & Actions>((set, get) => ({
       if (req.type === "overpay_transfer" && req.paymentId) {
         const r = get().results[req.paymentId];
         if (r?.best) {
-          // 承認済みなので請求ステータスを一旦戻してから消込実行
+          // 承認済みなので債権ステータスを一旦戻してから消込実行
           set((st) => ({ invoices: upInvoices(st.invoices, req.invoiceNos, { status: "in_review" }) }));
           get().executeClearing(req.paymentId, r.best, "approval", `${COMPANY.managerLabel}（承認）`, req.amount);
         }
@@ -646,6 +679,8 @@ export const useDemoStore = create<State & Actions>((set, get) => ({
               credits: [{ account: "仮受金", amount: pay.amount }],
               memo: `不明入金の仮受金計上（名義: ${pay.payerNameRaw}）※上長承認済み`,
               clearingId: null,
+              exported: false,
+              exportedAtLabel: null,
             },
           ],
           seq: { ...st.seq, journal: st.seq.journal + 1 },
@@ -675,7 +710,7 @@ export const useDemoStore = create<State & Actions>((set, get) => ({
   },
 
   // ------------------------------------------------------------
-  // G. 設定
+  // G. 設定・取引先マスタ
   // ------------------------------------------------------------
 
   setApprovalThreshold: (v) => {
@@ -693,25 +728,37 @@ export const useDemoStore = create<State & Actions>((set, get) => ({
     get().log("staff", "setting_change", `手数料許容値（${v}円）を${get().settings.feeTolerances.includes(v) ? "有効化" : "無効化"}しました`);
   },
 
-  addDictEntry: (from, to, kind, note) => {
+  addPayerAlias: (customerId, rawAlias, kind, note) => {
     const s = get();
-    const normalized = normalizePayerName(from);
-    if (s.dict.some((e) => e.from === normalized && e.to === to)) return;
-    const entry: NameDictEntry = {
-      id: `DICT-${String(s.seq.dict).padStart(3, "0")}`,
-      from: normalized,
-      to,
-      kind,
-      addedBy: "user",
-      note: note ?? null,
-    };
-    set((st) => ({ dict: [...st.dict, entry], seq: { ...st.seq, dict: st.seq.dict + 1 } }));
-    get().log("staff", "dict_register", `名義ゆれ辞書に登録: 「${normalized}」→「${to}」（${kind === "personal" ? "個人名義" : "学習済み"}）`, entry.id);
+    const customer = s.customers.find((c) => c.customerId === customerId);
+    if (!customer) return;
+    const normalized = normalizePayerName(rawAlias);
+    if (!normalized || customer.payerAliases.some((a) => a.alias === normalized)) return;
+    set((st) => ({
+      customers: st.customers.map((c) =>
+        c.customerId === customerId
+          ? { ...c, payerAliases: [...c.payerAliases, { alias: normalized, kind, note: note ?? null, addedBy: "user" }] }
+          : c,
+      ),
+    }));
+    get().log(
+      "staff",
+      "alias_register",
+      `取引先マスタの振込名義を登録: 「${normalized}」→「${customer.name}」（${kind === "personal" ? "個人名義" : "学習済み"}・${customer.customerId}）`,
+      customerId,
+    );
   },
 
-  removeDictEntry: (id) => {
-    const entry = get().dict.find((e) => e.id === id);
-    set((st) => ({ dict: st.dict.filter((e) => e.id !== id) }));
-    if (entry) get().log("staff", "dict_remove", `名義ゆれ辞書から削除: 「${entry.from}」→「${entry.to}」`, id);
+  removePayerAlias: (customerId, alias) => {
+    const s = get();
+    const customer = s.customers.find((c) => c.customerId === customerId);
+    const target = customer?.payerAliases.find((a) => a.alias === alias);
+    if (!customer || !target || target.kind === "official") return; // 正規名義は削除不可
+    set((st) => ({
+      customers: st.customers.map((c) =>
+        c.customerId === customerId ? { ...c, payerAliases: c.payerAliases.filter((a) => a.alias !== alias) } : c,
+      ),
+    }));
+    get().log("staff", "alias_remove", `取引先マスタの振込名義を削除: 「${alias}」（${customer.name}・${customer.customerId}）`, customerId);
   },
 }));

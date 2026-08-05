@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useDemoStore } from "@/lib/store";
 import { diffDays } from "@/lib/dates";
-import { formatDate, formatDateShort, yen, MATCH_TYPE_LABEL } from "@/lib/format";
+import { customerNameOf, formatDate, formatDateShort, yen } from "@/lib/format";
 import { Button, Card, EmptyState, HeroBanner, LinkButton, Spinner, Td, Th } from "@/components/ui";
 import { AIResultSummary, AiOrbHero } from "@/components/ai";
 import {
@@ -19,7 +19,7 @@ import { Icon } from "@/components/icons";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const RUN_STEPS = [
-  "振込名義の正規化と名義ゆれ辞書の照合",
+  "振込名義の正規化と取引先マスタ（振込名義）の照合",
   "完全一致マッチング（名義×金額×期日±5営業日）",
   "振込手数料差の許容判定（110〜880円）",
   "類似名義・合算入金・過入金の検知",
@@ -30,6 +30,7 @@ const RUN_STEPS = [
 type Tab = "cleared" | "review" | "unapplied" | "dunning";
 
 export default function MatchingPage() {
+  const customers = useDemoStore((s) => s.customers);
   const invoices = useDemoStore((s) => s.invoices);
   const payments = useDemoStore((s) => s.payments);
   const results = useDemoStore((s) => s.results);
@@ -85,6 +86,10 @@ export default function MatchingPage() {
   );
 
   const invoiceOf = (no: string) => invoices.find((i) => i.invoiceNo === no);
+  const nameOf = (no: string) => {
+    const inv = invoiceOf(no);
+    return inv ? customerNameOf(customers, inv.customerId) : "";
+  };
 
   const TABS: { key: Tab; label: string; count: number; dot: string }[] = [
     { key: "cleared", label: "消込済み", count: cleared.length, dot: "bg-emerald-500" },
@@ -148,7 +153,7 @@ export default function MatchingPage() {
             </Button>
             {matchingDone && !running && (
               <span className="text-[12px] text-[#8FB0CC]">
-                辞書学習後の再突合では、学習済み名義が自動一致します
+                マスタ学習後の再突合では、学習済み名義が自動一致します
               </span>
             )}
           </>
@@ -169,7 +174,7 @@ export default function MatchingPage() {
       {running ? (
         <AiOrbHero
           title="AIが請求と入金を突合しています"
-          subtitle={`債権台帳 ${invoices.filter((i) => i.status !== "folder").length}件 × 入金明細 ${payments.length}件`}
+          subtitle={`債権台帳 ${invoices.filter((i) => i.status !== "unsynced").length}件 × 入金明細 ${payments.length}件`}
           steps={RUN_STEPS}
           current={step}
           running={running}
@@ -179,7 +184,7 @@ export default function MatchingPage() {
           <EmptyState
             icon={<Icon name="sparkles" className="h-10 w-10" />}
             title="準備完了 — 自動突合を実行してください"
-            description={`債権台帳 ${invoices.filter((i) => i.status !== "folder").length}件と入金明細 ${payments.length}件が待機中です。「自動突合を実行」を押すと、AIが照合と分類を行います。`}
+            description={`債権台帳 ${invoices.filter((i) => i.status !== "unsynced").length}件と入金明細 ${payments.length}件が待機中です。「自動突合を実行」を押すと、AIが照合と分類を行います。`}
             action={
               <Button variant="ai" size="lg" onClick={run}>
                 <Icon name="sparkles" className="h-[18px] w-[18px]" /> 自動突合を実行
@@ -240,13 +245,12 @@ export default function MatchingPage() {
                   <tbody>
                     {cleared.map((p) => {
                       const r = results[p.id];
-                      const invs = p.matchedInvoiceNos.map(invoiceOf).filter(Boolean);
                       return (
                         <tr key={p.id} className="row-reveal border-b border-line-subtle last:border-0 hover:bg-surface-sunken">
                           <Td className="whitespace-nowrap tabular-nums text-ink-muted">{formatDateShort(p.paymentDate)}</Td>
                           <Td>
                             <div className="font-mono text-[13px] text-ink-soft">{p.payerNameRaw}</div>
-                            <div className="text-[11px] text-ink-muted">{invs[0]?.customerName}</div>
+                            <div className="text-[11px] text-ink-muted">{nameOf(p.matchedInvoiceNos[0])}</div>
                           </Td>
                           <Td className="whitespace-nowrap text-right font-semibold tabular-nums text-ink">{yen(p.amount)}</Td>
                           <Td>
@@ -309,7 +313,7 @@ export default function MatchingPage() {
                             {best ? (
                               <>
                                 <span className="font-mono text-[13px] text-ink">{best.invoiceNos.join("・")}</span>
-                                <div className="text-[11px] text-ink-muted">{invoiceOf(best.invoiceNos[0])?.customerName}</div>
+                                <div className="text-[11px] text-ink-muted">{nameOf(best.invoiceNos[0])}</div>
                               </>
                             ) : (
                               "—"
@@ -427,7 +431,7 @@ export default function MatchingPage() {
                     {dunningRows.map(({ d, inv }) => (
                       <tr key={d.invoiceNo} className="border-b border-line-subtle last:border-0 hover:bg-surface-sunken">
                         <Td className="whitespace-nowrap font-mono text-[13px] text-ink-soft">{inv.invoiceNo}</Td>
-                        <Td className="font-medium text-ink">{inv.customerName}</Td>
+                        <Td className="font-medium text-ink">{customerNameOf(customers, inv.customerId)}</Td>
                         <Td className="whitespace-nowrap text-right font-semibold tabular-nums text-ink">{yen(inv.amount)}</Td>
                         <Td className="whitespace-nowrap tabular-nums text-ink-muted">{formatDate(inv.dueDate)}</Td>
                         <Td>

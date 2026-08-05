@@ -1,16 +1,17 @@
 // ------------------------------------------------------------
 // 突合エンジン（指示書 §3-B。UIから分離した純粋関数群）
-//   B-1 完全一致 / B-2 手数料差 / B-3 あいまい名義・旧社名 /
+//   B-1 完全一致 / B-2 手数料差 / B-3 あいまい名義・マスタ別名 /
 //   B-4 合算入金 / B-5 過入金・不明入金 / B-6 未入金
+//   名義照合は取引先マスタ（payerAliases: 1顧客 : N振込名義）に基づく。
 // ------------------------------------------------------------
 
 import type {
+  Customer,
   Invoice,
   MatchCandidate,
   MatchClassification,
   MatchResult,
   MatchSettings,
-  NameDictEntry,
   Payment,
 } from "./types";
 import { businessDaysBetween, diffDays, formatDateShort } from "./dates";
@@ -100,74 +101,94 @@ function dateReason(p: Payment, inv: Invoice): string {
   return `入金日 ${formatDateShort(p.paymentDate)} は支払期日 ${formatDateShort(inv.dueDate)} の${bd}営業日${diffDays(inv.dueDate, p.paymentDate) <= 0 ? "前" : "後"}（±5営業日以内）`;
 }
 
+const ALIAS_KIND_TEXT: Record<string, string> = {
+  old_name: "旧社名",
+  kana_alias: "カナ別名",
+  personal: "個人名義",
+  learned: "学習済み名義",
+};
+
 /** 名義照合の内部結果 */
 type NameHit = {
   invoice: Invoice;
-  kind: "exact" | "learned" | "old_name" | "fuzzy" | "personal";
+  customer: Customer;
+  kind: "exact" | "learned" | "master_alias" | "fuzzy" | "personal";
   similarity: number;
-  dictHit: MatchCandidate["dictHit"];
+  aliasHit: MatchCandidate["aliasHit"];
   reason: string;
 };
 
-/** 入金名義と請求先の照合（辞書 → 完全一致 → 代表者 → 類似） */
-function nameHits(norm: string, raw: string, invoices: Invoice[], dict: NameDictEntry[]): NameHit[] {
+/** 入金名義と債権の照合（取引先マスタの振込名義 → 代表者 → 類似） */
+function nameHits(norm: string, raw: string, invoices: Invoice[], customers: Customer[]): NameHit[] {
   const hits: NameHit[] = [];
-  const dictEntry = dict.find((e) => e.from === norm);
+  const byId = new Map(customers.map((c) => [c.customerId, c]));
 
   for (const inv of invoices) {
-    const invKana = normalizePayerName(inv.customerKana);
+    const customer = byId.get(inv.customerId);
+    if (!customer) continue;
 
-    // 学習済み・旧社名などの辞書一致
-    if (dictEntry && dictEntry.to === inv.customerName) {
-      const learned = dictEntry.kind === "learned";
-      hits.push({
-        invoice: inv,
-        kind: learned ? "learned" : "old_name",
-        similarity: 1,
-        dictHit: { from: dictEntry.from, to: dictEntry.to, kind: dictEntry.kind },
-        reason: learned
-          ? `振込名義「${raw}」は学習済み辞書により「${inv.customerName}」と確定（目検承認時に登録済み）`
-          : `振込名義「${raw}」は名義ゆれ辞書（${dictEntry.note ?? "旧社名"}）により「${inv.customerName}」と一致`,
-      });
-      continue;
-    }
-
-    // 正規化後の完全一致
-    if (norm === invKana) {
-      hits.push({
-        invoice: inv,
-        kind: "exact",
-        similarity: 1,
-        dictHit: null,
-        reason: `振込名義「${raw}」を正規化した「${norm}」が請求先「${inv.customerName}（${inv.customerKana}）」と完全一致`,
-      });
+    // マスタの振込名義レコードとの一致（1顧客 : N名義）
+    const alias = customer.payerAliases.find((a) => a.alias === norm);
+    if (alias) {
+      const hitInfo = { alias: alias.alias, kind: alias.kind, customerName: customer.name };
+      if (alias.kind === "official") {
+        hits.push({
+          invoice: inv,
+          customer,
+          kind: "exact",
+          similarity: 1,
+          aliasHit: hitInfo,
+          reason: `振込名義「${raw}」を正規化した「${norm}」が取引先「${customer.name}（${customer.kana}）」の正規名義と一致`,
+        });
+      } else if (alias.kind === "learned" || alias.addedBy === "user") {
+        hits.push({
+          invoice: inv,
+          customer,
+          kind: "learned",
+          similarity: 1,
+          aliasHit: hitInfo,
+          reason: `振込名義「${raw}」は取引先マスタに登録済みの振込名義（${ALIAS_KIND_TEXT[alias.kind] ?? alias.kind}・目検承認で学習）により「${customer.name}」と確定`,
+        });
+      } else {
+        // 連携元マスタ由来の旧社名・カナ別名 → 参考情報として要目検
+        hits.push({
+          invoice: inv,
+          customer,
+          kind: "master_alias",
+          similarity: 1,
+          aliasHit: hitInfo,
+          reason: `振込名義「${raw}」は取引先マスタの振込名義（${ALIAS_KIND_TEXT[alias.kind] ?? alias.kind}${alias.note ? `: ${alias.note}` : ""}）により「${customer.name}」と一致`,
+        });
+      }
       continue;
     }
 
     // 代表者個人名義
-    if (inv.representativeKana) {
-      const repSim = nameSimilarity(norm, normalizePayerName(inv.representativeKana));
+    if (customer.representativeKana) {
+      const repSim = nameSimilarity(norm, normalizePayerName(customer.representativeKana));
       if (repSim >= 0.85) {
         hits.push({
           invoice: inv,
+          customer,
           kind: "personal",
           similarity: repSim,
-          dictHit: null,
-          reason: `振込名義「${raw}」は請求先「${inv.customerName}」の代表者「${inv.representativeKana}」と一致（代表者個人名義の振込と推定）`,
+          aliasHit: null,
+          reason: `振込名義「${raw}」は取引先「${customer.name}」の代表者「${customer.representativeKana}」と一致（代表者個人名義の振込と推定）`,
         });
         continue;
       }
     }
 
-    // あいまい名義
-    const sim = nameSimilarity(norm, invKana);
+    // あいまい名義（正規名義との類似度）
+    const sim = nameSimilarity(norm, normalizePayerName(customer.kana));
     if (sim >= 0.55) {
       hits.push({
         invoice: inv,
+        customer,
         kind: "fuzzy",
         similarity: sim,
-        dictHit: null,
-        reason: `振込名義「${raw}」（正規化: ${norm}）は請求先「${inv.customerName}（${inv.customerKana}）」と部分一致（類似度 ${pct(sim)}）`,
+        aliasHit: null,
+        reason: `振込名義「${raw}」（正規化: ${norm}）は取引先「${customer.name}（${customer.kana}）」と部分一致（類似度 ${pct(sim)}）`,
       });
     }
   }
@@ -187,14 +208,14 @@ function feeOf(invoiceTotal: number, paymentAmount: number, settings: MatchSetti
 export function findCandidates(
   payment: Payment,
   invoices: Invoice[],
-  dict: NameDictEntry[],
+  customers: Customer[],
   settings: MatchSettings,
 ): MatchCandidate[] {
   const norm = normalizePayerName(payment.payerNameRaw);
-  const hits = nameHits(norm, payment.payerNameRaw, invoices, dict);
+  const hits = nameHits(norm, payment.payerNameRaw, invoices, customers);
   const candidates: MatchCandidate[] = [];
 
-  // --- 単体請求との照合 ---
+  // --- 単体債権との照合 ---
   for (const h of hits) {
     const inv = h.invoice;
     const base: Omit<MatchCandidate, "matchType" | "score" | "reasons"> = {
@@ -203,7 +224,7 @@ export function findCandidates(
       amountDiff: payment.amount - inv.amount,
       feeAssumed: false,
       normalizedPayer: norm,
-      dictHit: h.dictHit,
+      aliasHit: h.aliasHit,
     };
 
     // 金額完全一致
@@ -220,7 +241,7 @@ export function findCandidates(
             dateOk ? dateReason(payment, inv) : `入金日が支払期日の±5営業日を外れているため要確認`,
           ],
         });
-      } else if (h.kind === "old_name") {
+      } else if (h.kind === "master_alias") {
         candidates.push({
           ...base,
           matchType: "old_name",
@@ -302,13 +323,13 @@ export function findCandidates(
     }
   }
 
-  // --- 合算入金（B-4）: 同一名義の複数請求の合計と一致 ---
+  // --- 合算入金（B-4）: 同一名義の複数債権の合計と一致 ---
   const strongHits = hits.filter((h) => h.similarity >= 0.85 || h.kind !== "fuzzy");
   const byCustomer = new Map<string, NameHit[]>();
   for (const h of strongHits) {
-    const arr = byCustomer.get(h.invoice.customerName) ?? [];
+    const arr = byCustomer.get(h.customer.customerId) ?? [];
     arr.push(h);
-    byCustomer.set(h.invoice.customerName, arr);
+    byCustomer.set(h.customer.customerId, arr);
   }
   byCustomer.forEach((list) => {
     const invs = list.map((h) => h.invoice);
@@ -333,10 +354,10 @@ export function findCandidates(
           amountDiff: payment.amount - total,
           feeAssumed: fee !== null,
           normalizedPayer: norm,
-          dictHit: h0.dictHit,
+          aliasHit: h0.aliasHit,
           reasons: [
             h0.reason,
-            `同一名義の未消込請求${combo.length}件（${combo.map((x) => `${x.invoiceNo} ${yen(x.amount)}`).join(" + ")}）の合計 ${yen(total)} が入金額と一致${fee !== null ? `（手数料 ${yen(fee)} 控除後）` : ""}`,
+            `同一名義の未消込債権${combo.length}件（${combo.map((x) => `${x.invoiceNo} ${yen(x.amount)}`).join(" + ")}）の合計 ${yen(total)} が入金額と一致${fee !== null ? `（手数料 ${yen(fee)} 控除後）` : ""}`,
             "合算入金と推定されるため、組み合わせの目検確認が必要",
           ],
         });
@@ -365,14 +386,14 @@ export function classify(score: number | null, settings: MatchSettings): MatchCl
 
 /**
  * 突合を実行する。
- * - 1パス目: スコア95以上（完全一致・手数料差）を確定し、対象請求を予約
- * - 2パス目: 残りの入金を残りの請求と照合（あいまい・合算・過入金など）
- * - 最後に期日超過・未入金の請求を督促対象として抽出
+ * - 1パス目: スコア95以上（完全一致・手数料差）を確定し、対象債権を予約
+ * - 2パス目: 残りの入金を残りの債権と照合（あいまい・合算・過入金など）
+ * - 最後に期日超過・未入金の債権を督促対象として抽出
  */
 export function runMatching(
   invoices: Invoice[],
   payments: Payment[],
-  dict: NameDictEntry[],
+  customers: Customer[],
   settings: MatchSettings,
   todayIso: string,
 ): MatchOutcome {
@@ -383,7 +404,7 @@ export function runMatching(
 
   // 1パス目: 自動消込確定分
   for (const p of payments) {
-    const cands = findCandidates(p, available(), dict, settings);
+    const cands = findCandidates(p, available(), customers, settings);
     const best = cands[0] ?? null;
     if (best && classify(best.score, settings) === "auto") {
       best.invoiceNos.forEach((no) => reserved.add(no));
@@ -400,7 +421,7 @@ export function runMatching(
   // 2パス目: 残り（要目検・保留）
   for (const p of payments) {
     if (results.has(p.id)) continue;
-    const cands = findCandidates(p, available(), dict, settings);
+    const cands = findCandidates(p, available(), customers, settings);
     const best = cands[0] ?? null;
     const classification = classify(best?.score ?? null, settings);
     if (best && classification !== "unapplied") {

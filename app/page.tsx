@@ -3,7 +3,8 @@
 import { useMemo } from "react";
 import { useDemoStore } from "@/lib/store";
 import { diffDays } from "@/lib/dates";
-import { fmtDuration, formatDate, yen } from "@/lib/format";
+import { customerNameOf, fmtDuration, formatDate, yen } from "@/lib/format";
+import { SOURCE_SYSTEM } from "@/lib/data";
 import { agingBucket } from "@/lib/matching";
 import { downloadCsv } from "@/lib/csv";
 import { AgentAvatar, ActorBadge } from "@/components/badges";
@@ -15,6 +16,7 @@ import { Gauge, DonutChart, VBarChart, HBarChart, CHART } from "@/components/cha
 import { INVOICE_STATUS_LABEL, METHOD_LABEL } from "@/lib/format";
 
 export default function DashboardPage() {
+  const customers = useDemoStore((s) => s.customers);
   const invoices = useDemoStore((s) => s.invoices);
   const payments = useDemoStore((s) => s.payments);
   const dunning = useDemoStore((s) => s.dunning);
@@ -59,7 +61,7 @@ export default function DashboardPage() {
   }, [invoices, payments, dunning, clearings]);
 
   const pipeline = useMemo(() => {
-    const registered = invoices.filter((i) => i.status !== "folder").length;
+    const registered = invoices.filter((i) => i.status !== "unsynced").length;
     const fetched = payments.filter((p) => p.status !== "unfetched").length;
     const matched = payments.filter((p) => !["unfetched", "unmatched"].includes(p.status)).length;
     const cleared = payments.filter((p) => ["matched_auto", "matched_manual", "transferred"].includes(p.status)).length;
@@ -98,8 +100,8 @@ export default function DashboardPage() {
     () =>
       [...kpi.dunningInvoices]
         .sort((a, b) => b.amount - a.amount)
-        .map((i, idx) => ({ label: i.customerName, value: i.amount, color: idx === 0 ? CHART.rose : CHART.orange })),
-    [kpi.dunningInvoices],
+        .map((i, idx) => ({ label: customerNameOf(customers, i.customerId), value: i.amount, color: idx === 0 ? CHART.rose : CHART.orange })),
+    [kpi.dunningInvoices, customers],
   );
 
   const recent = useMemo(() => [...audit].slice(-6).reverse(), [audit]);
@@ -111,7 +113,7 @@ export default function DashboardPage() {
         const clr = clearings.find((c) => c.invoiceNos.includes(i.invoiceNo));
         return [
           i.invoiceNo,
-          i.customerName,
+          customerNameOf(customers, i.customerId),
           i.amount,
           formatDate(i.issueDate),
           formatDate(i.dueDate),
@@ -127,11 +129,11 @@ export default function DashboardPage() {
 
   // フェーズに応じた次アクションの案内
   const guide = !invoicesImported
-    ? { text: "請求書フォルダに31ファイルの未取込請求書があります。まずは債権台帳へ取り込みましょう。", href: "/import", cta: "データ取込へ" }
+    ? { text: `${SOURCE_SYSTEM}に未同期の債権（計上済み売掛金の未消込分）が31伝票あります。まずは債権台帳へ同期しましょう。`, href: "/import", cta: "データ取込へ" }
     : !fbFetched
       ? { text: "債権台帳の準備ができました。銀行からFBデータ（入金明細）を取得しましょう。", href: "/import", cta: "FBデータを取得" }
       : !matchingDone
-        ? { text: "請求と入金が揃いました。AIによる自動突合を実行すると、消込結果が分類されます。", href: "/matching", cta: "自動突合を実行" }
+        ? { text: "債権と入金が揃いました。AIによる自動突合を実行すると、消込結果が分類されます。", href: "/matching", cta: "自動突合を実行" }
         : null;
 
   return (
@@ -269,7 +271,9 @@ export default function DashboardPage() {
                 <p className="min-w-0 flex-1 truncate text-[13px] text-ink-soft" title={e.message}>
                   {e.message}
                 </p>
-                <span className="flex-none text-[11px] tabular-nums text-ink-faint">{e.atLabel}</span>
+                <span className="flex-none text-[11px] tabular-nums text-ink-faint" suppressHydrationWarning>
+                  {e.atLabel}
+                </span>
               </li>
             ))}
           </ul>

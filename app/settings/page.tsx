@@ -1,11 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useDemoStore } from "@/lib/store";
 import { yen } from "@/lib/format";
-import type { DictKind } from "@/lib/types";
-import { Button, Card, HeroBanner, SectionTitle, Td, Th } from "@/components/ui";
-import { DictKindBadge } from "@/components/badges";
+import { SOURCE_SYSTEM } from "@/lib/data";
+import { Button, Card, HeroBanner, LinkButton, SectionTitle } from "@/components/ui";
 import { Icon } from "@/components/icons";
 
 const FEE_OPTIONS = [110, 220, 330, 440, 660, 880];
@@ -13,20 +12,12 @@ const THRESHOLD_PRESETS = [50000, 100000, 300000, 500000];
 
 export default function SettingsPage() {
   const settings = useDemoStore((s) => s.settings);
-  const dict = useDemoStore((s) => s.dict);
-  const invoices = useDemoStore((s) => s.invoices);
+  const customers = useDemoStore((s) => s.customers);
   const setApprovalThreshold = useDemoStore((s) => s.setApprovalThreshold);
   const toggleFeeTolerance = useDemoStore((s) => s.toggleFeeTolerance);
-  const addDictEntry = useDemoStore((s) => s.addDictEntry);
-  const removeDictEntry = useDemoStore((s) => s.removeDictEntry);
 
   const [thresholdInput, setThresholdInput] = useState(String(settings.approvalThreshold));
-
-  // 辞書追加フォーム
-  const customers = useMemo(() => Array.from(new Set(invoices.map((i) => i.customerName))), [invoices]);
-  const [dictFrom, setDictFrom] = useState("");
-  const [dictTo, setDictTo] = useState(customers[0] ?? "");
-  const [dictKind, setDictKind] = useState<DictKind>("kana_alias");
+  const aliasTotal = customers.reduce((sum, c) => sum + c.payerAliases.length, 0);
 
   function saveThreshold() {
     const v = Number(thresholdInput.replace(/[^\d]/g, ""));
@@ -34,18 +25,12 @@ export default function SettingsPage() {
     setApprovalThreshold(v);
   }
 
-  function addDict() {
-    if (!dictFrom.trim() || !dictTo) return;
-    addDictEntry(dictFrom.trim(), dictTo, dictKind, "設定画面から登録");
-    setDictFrom("");
-  }
-
   return (
     <div className="space-y-8">
       <HeroBanner
         eyebrow="SETTINGS"
         title="設定"
-        description="承認金額の閾値・振込手数料の許容値・名義ゆれ辞書を管理します。変更はすべて監査証跡に記録されます。"
+        description="承認金額の閾値・振込手数料の許容値を管理します。変更はすべて監査証跡に記録されます。振込名義の管理は取引先マスタで行います。"
       />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -126,105 +111,22 @@ export default function SettingsPage() {
         </Card>
       </div>
 
-      {/* 名義ゆれ辞書（A-3 / D-3） */}
-      <Card padded={false} className="overflow-hidden">
-        <div className="border-b border-surface-border px-5 pb-3 pt-5">
-          <SectionTitle sub="カナ名義・旧社名・代表者個人名義と正式取引先名の対応表。目検キューでの承認時にも自動登録されます（D-3）">
-            名義ゆれ辞書（{dict.length}件）
-          </SectionTitle>
-        </div>
-
-        {/* 追加フォーム */}
-        <div className="flex flex-wrap items-end gap-3 border-b border-line-subtle bg-surface-sunken/50 px-5 py-4">
-          <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-medium text-ink-muted">振込名義（カナ）</span>
-            <input
-              value={dictFrom}
-              onChange={(e) => setDictFrom(e.target.value)}
-              placeholder="例: カ)アルフア"
-              className="h-10 w-56 rounded-lg border border-surface-border bg-surface-input px-3 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-brand-500"
-            />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-medium text-ink-muted">正式取引先名</span>
-            <select
-              value={dictTo}
-              onChange={(e) => setDictTo(e.target.value)}
-              className="h-10 w-64 rounded-lg border border-surface-border bg-surface-input px-3 text-sm text-ink outline-none focus:border-brand-500"
-            >
-              {customers.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-medium text-ink-muted">種別</span>
-            <select
-              value={dictKind}
-              onChange={(e) => setDictKind(e.target.value as DictKind)}
-              className="h-10 w-40 rounded-lg border border-surface-border bg-surface-input px-3 text-sm text-ink outline-none focus:border-brand-500"
-            >
-              <option value="kana_alias">カナ別名</option>
-              <option value="old_name">旧社名</option>
-              <option value="personal">個人名義</option>
-            </select>
-          </label>
-          <Button variant="primary" size="sm" onClick={addDict} disabled={!dictFrom.trim()}>
-            <Icon name="plus" className="h-4 w-4" /> 追加
-          </Button>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-sm">
-            <thead>
-              <tr className="border-b border-surface-border text-left text-xs font-medium uppercase tracking-wide text-ink-muted">
-                <Th>振込名義（正規化後）</Th>
-                <Th />
-                <Th>正式取引先名</Th>
-                <Th>種別</Th>
-                <Th>登録元</Th>
-                <Th>メモ</Th>
-                <Th />
-              </tr>
-            </thead>
-            <tbody>
-              {dict.map((e) => (
-                <tr key={e.id} className="border-b border-line-subtle last:border-0 hover:bg-surface-sunken">
-                  <Td className="whitespace-nowrap font-mono text-[13px] text-ink">{e.from}</Td>
-                  <Td>
-                    <Icon name="chevronRight" className="h-3.5 w-3.5 text-ink-faint" />
-                  </Td>
-                  <Td className="whitespace-nowrap font-medium text-ink">{e.to}</Td>
-                  <Td>
-                    <DictKindBadge kind={e.kind} />
-                  </Td>
-                  <Td className="whitespace-nowrap text-[12.5px] text-ink-muted">{e.addedBy === "seed" ? "初期データ" : "ユーザー登録"}</Td>
-                  <Td className="max-w-[240px]">
-                    <span className="block truncate text-[12px] text-ink-muted" title={e.note ?? ""}>
-                      {e.note ?? "—"}
-                    </span>
-                  </Td>
-                  <Td>
-                    <button
-                      onClick={() => removeDictEntry(e.id)}
-                      className="rounded-md border border-line px-2 py-1 text-[11.5px] font-medium text-ink-muted transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
-                    >
-                      削除
-                    </button>
-                  </Td>
-                </tr>
-              ))}
-              {dict.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-sm text-ink-faint">
-                    辞書エントリがありません
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+      {/* 振込名義の管理は取引先マスタへ */}
+      <Card>
+        <div className="flex flex-wrap items-center gap-4">
+          <span className="flex h-11 w-11 flex-none items-center justify-center rounded-xl bg-brand-50 text-brand-600">
+            <Icon name="book" className="h-5 w-5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-[16px] font-semibold text-ink">振込名義の管理は「取引先マスタ」へ</h2>
+            <p className="mt-0.5 text-[13px] leading-relaxed text-ink-muted">
+              名義ゆれ・旧社名・個人名義・学習済み名義は、{SOURCE_SYSTEM}と同期する取引先マスタ上で
+              1顧客ID : N振込名義のレコードとして管理します（現在 {customers.length}社・{aliasTotal}名義）。
+            </p>
+          </div>
+          <LinkButton href="/customers" variant="primary" size="sm">
+            取引先マスタを開く <Icon name="chevronRight" className="h-4 w-4" />
+          </LinkButton>
         </div>
       </Card>
 
