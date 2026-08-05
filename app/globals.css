@@ -1,0 +1,154 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: "Inter", "SF Pro Text", "Noto Sans JP", "Hiragino Kaku Gothic ProN",
+    "Hiragino Sans", "Segoe UI", "Meiryo", sans-serif;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  color: #16375a;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ライトなキャンバス: 白→PMGブルーの上品なグラデ (固定) */
+body {
+  min-height: 100vh;
+  background-color: #f4f7fb;
+  background-image:
+    radial-gradient(1200px 520px at 82% -12%, rgba(0, 175, 236, 0.22) 0%, rgba(0, 175, 236, 0) 58%),
+    linear-gradient(180deg, #e9f1fb 0%, #c5d9f0 46%, #9fc0e6 100%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* キーボードフォーカス可視化 */
+:focus-visible {
+  outline: 2px solid rgba(0, 108, 191, 0.7);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* ===== AI限定ユーティリティ ===== */
+
+/* PMGブルー→シアン グラデ (最重要AIアクション/処理中のみ) */
+.ai-gradient {
+  background-image: linear-gradient(100deg, #0c56a0 0%, #006cbf 52%, #00afec 100%);
+}
+.ai-gradient-anim {
+  background-image: linear-gradient(110deg, #0c56a0, #006cbf, #00afec, #0c56a0);
+  background-size: 220% 100%;
+  animation: sweep 2.6s linear infinite;
+}
+
+/* グラデ文字 (ダーク面のワードマーク "AI" 等・明シアン寄り) */
+.gradient-text {
+  background-image: linear-gradient(100deg, #33c4f2 0%, #00afec 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ダーク・ネイビー面 (ページヒーロー) */
+.hero-navy {
+  background-color: #0b2a46;
+  background-image: linear-gradient(120deg, #0b2a46 0%, #103a5e 55%, #0e2c49 100%);
+}
+/* 表紙 / AI処理ヒーロー */
+.hero-cobalt,
+.surface-cover {
+  background-color: #0b2a46;
+  background-image: linear-gradient(135deg, #0b2a46 0%, #123a5e 52%, #17497a 100%);
+}
+/* サイドバー地 */
+.sidebar-bg {
+  background-color: #0b2036;
+  background-image: linear-gradient(180deg, #0f2c49 0%, #08192b 100%);
+}
+
+/* ダーク面のシアン・ネオン */
+.neon-cyan {
+  text-shadow: 0 0 22px rgba(0, 175, 236, 0.45);
+}
+.accent-line {
+  background-image: linear-gradient(90deg, #00afec 0%, #006cbf 55%, #0c56a0 100%);
+}
+
+/* グラデ枠線 (AIパネル限定) */
+.ai-border {
+  background-image: linear-gradient(120deg, rgba(0, 108, 191, 0.85), rgba(0, 175, 236, 0.7));
+  padding: 1px;
+}
+
+/* スケルトン (ライト) */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: #e7eef6;
+  border-radius: 4px;
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(0, 108, 191, 0.16), transparent);
+  animation: shimmer 1.4s infinite;
+}
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* 行フェードイン */
+.row-reveal {
+  animation: fade-in 0.4s ease-out;
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* スクロールバー (ライト) */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #c2ccd6;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #a9b8c8;
+  background-clip: padding-box;
+}
+
+/* アクセシビリティ: モーション抑制設定を尊重 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
