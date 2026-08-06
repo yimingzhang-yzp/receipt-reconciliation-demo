@@ -115,6 +115,10 @@ type Actions = {
   toggleFeeTolerance: (v: number) => void;
   addPayerAlias: (customerId: string, rawAlias: string, kind: AliasKind, note?: string) => void;
   removePayerAlias: (customerId: string, alias: string) => void;
+  updateCustomerInfo: (
+    customerId: string,
+    patch: Partial<Pick<Customer, "contactName" | "contactPhone" | "note">>,
+  ) => void;
 };
 
 function buildInitialState(): Omit<State, "toasts"> {
@@ -586,8 +590,9 @@ export const useDemoStore = create<State & Actions>((set, get) => ({
     const s = get();
     const inv = s.invoices.find((i) => i.invoiceNo === invoiceNo);
     if (!inv) return;
-    const customerName = get().customerNameOf(inv.customerId);
-    const draft = buildDunningMail(inv, customerName, s.demoDate);
+    const customer = get().customerOf(inv.customerId);
+    const customerName = customer?.name ?? "（取引先不明）";
+    const draft = buildDunningMail(inv, customerName, customer?.contactName ?? null, s.demoDate);
     set((st) => ({
       dunning: st.dunning.map((d) => (d.invoiceNo === invoiceNo ? { ...d, status: "drafted", draft } : d)),
     }));
@@ -747,6 +752,21 @@ export const useDemoStore = create<State & Actions>((set, get) => ({
       `取引先マスタの振込名義を登録: 「${normalized}」→「${customer.name}」（${kind === "personal" ? "個人名義" : "学習済み"}・${customer.customerId}）`,
       customerId,
     );
+  },
+
+  updateCustomerInfo: (customerId, patch) => {
+    const customer = get().customers.find((c) => c.customerId === customerId);
+    if (!customer) return;
+    set((st) => ({
+      customers: st.customers.map((c) => (c.customerId === customerId ? { ...c, ...patch } : c)),
+    }));
+    get().log(
+      "staff",
+      "customer_update",
+      `取引先マスタの窓口情報を更新しました（${customer.name}・${customer.customerId}）`,
+      customerId,
+    );
+    get().pushToast("窓口情報を更新しました", "success");
   },
 
   removePayerAlias: (customerId, alias) => {

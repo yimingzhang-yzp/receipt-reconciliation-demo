@@ -6,7 +6,7 @@
 //                   名義ゆれ+手数料1 / 不明1 / 過入金1 / 個人名義1
 // ------------------------------------------------------------
 
-import type { BankAccount, Customer, Invoice, PayerAlias, Payment } from "./types";
+import type { Customer, Invoice, PayerAlias, Payment } from "./types";
 import { normalizePayerName } from "./matching";
 import { addDays, diffDays, formatDate } from "./dates";
 
@@ -107,17 +107,29 @@ const EXTRA_ALIASES: Record<string, Omit<PayerAlias, "addedBy">[]> = {
 
 // ---- 取引先マスタ（ROWSの初出順に顧客IDを採番。販売管理システムと同期） ----
 
-const MASTER_BANKS = ["みずほ銀行", "三菱UFJ銀行", "三井住友銀行", "りそな銀行"];
-const MASTER_BRANCHES = ["本店営業部", "新宿支店", "大阪支店", "名古屋支店", "渋谷支店", "福岡支店", "横浜支店"];
+// 支払条件（締め・サイト。連携元マスタ由来）
+const PAYMENT_TERMS = ["月末締め・翌月末払い", "20日締め・翌月末払い", "月末締め・翌々月10日払い"];
 
-function bankAccountFor(index: number): BankAccount {
-  return {
-    bankName: MASTER_BANKS[index % MASTER_BANKS.length],
-    branchName: MASTER_BRANCHES[index % MASTER_BRANCHES.length],
-    accountType: index % 5 === 3 ? "当座" : "普通",
-    accountNumber: String(1000000 + (((index + 3) * 733451) % 8999999)).slice(0, 7),
-  };
+// 先方経理窓口の担当者（本システムで更新できる想定のサンプル値）
+const CONTACT_SURNAMES = ["高橋", "佐々木", "小林", "加藤", "吉田", "山田", "松本", "井上", "清水", "森田"];
+
+function paymentTermsFor(index: number): string {
+  return PAYMENT_TERMS[index % PAYMENT_TERMS.length];
 }
+
+function contactFor(index: number): { name: string; phone: string } {
+  const n1 = String(5100 + ((index * 137) % 800)).padStart(4, "0");
+  const n2 = String(1000 + ((index * 911) % 9000)).padStart(4, "0");
+  return { name: CONTACT_SURNAMES[index % CONTACT_SURNAMES.length], phone: `03-${n1}-${n2}` };
+}
+
+// 入金に関する申し送りメモ（消込実務でよく使う情報の例）
+const CUSTOMER_NOTES: Record<string, string> = {
+  株式会社ロッテ: "複数請求をまとめて振り込まれることが多い（合算入金に注意）",
+  パナソニック株式会社: "旧社名（松下電器産業）名義での振込実績あり",
+  株式会社ゼンリン: "過入金が発生した場合は次回請求との相殺で合意済み",
+  株式会社オカムラ: "代表者個人名義で振り込まれることがある",
+};
 
 function uniqueCustomers(): { name: string; kana: string; rep: string | null }[] {
   const seen = new Map<string, { name: string; kana: string; rep: string | null }>();
@@ -133,12 +145,16 @@ export function buildSeedCustomers(): Customer[] {
       { alias: normalizePayerName(c.kana), kind: "official", note: "正式社名の読み", addedBy: "sync" },
       ...(EXTRA_ALIASES[c.name] ?? []).map((a) => ({ ...a, alias: normalizePayerName(a.alias), addedBy: "sync" as const })),
     ];
+    const contact = contactFor(i);
     return {
       customerId: `CUST-${String(i + 1).padStart(3, "0")}`,
       name: c.name,
       kana: c.kana,
       representativeKana: c.rep,
-      bankAccount: bankAccountFor(i),
+      paymentTerms: paymentTermsFor(i),
+      contactName: contact.name,
+      contactPhone: contact.phone,
+      note: CUSTOMER_NOTES[c.name] ?? null,
       payerAliases: aliases,
     };
   });
@@ -236,16 +252,18 @@ export function buildFbRawLines(payments: Payment[], today: string): string[] {
 export function buildDunningMail(
   inv: Invoice,
   customerName: string,
+  contactName: string | null,
   demoDate: string,
 ): { to: string; subject: string; body: string } {
   const overdue = diffDays(inv.dueDate, demoDate);
   const yen = (n: number) => "¥" + n.toLocaleString("ja-JP");
+  const contactLine = contactName ? `経理部 ${contactName} 様` : "経理ご担当者様";
   return {
-    to: `${customerName} 経理ご担当者様`,
+    to: `${customerName} ${contactLine}`,
     subject: `【お支払いのご確認】請求書 ${inv.invoiceNo}（${COMPANY.selfName}）`,
     body: [
       `${customerName}`,
-      `経理ご担当者様`,
+      contactLine,
       ``,
       `いつもお世話になっております。`,
       `${COMPANY.selfName} ${COMPANY.dept}の${COMPANY.staffName}です。`,
