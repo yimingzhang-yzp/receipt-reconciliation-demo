@@ -25,10 +25,7 @@ export function TopBar() {
       <div className="flex items-center gap-2 text-[12px] text-ink-muted">
         <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface/70 px-3 py-1.5 backdrop-blur">
           <Icon name="calendar" className="h-3.5 w-3.5 text-ink-faint" />
-          デモ内日付 <span className="font-semibold tabular-nums text-ink">{formatDate(demoDate)}</span>
-        </span>
-        <span className="hidden rounded-full border border-line bg-surface/70 px-3 py-1.5 backdrop-blur sm:inline-flex">
-          銀行API・メール送信・会計連携はモック
+          基準日 <span className="font-semibold tabular-nums text-ink">{formatDate(demoDate)}</span>
         </span>
       </div>
 

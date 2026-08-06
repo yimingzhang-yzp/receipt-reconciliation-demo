@@ -49,7 +49,7 @@ export default function ImportPage() {
       dueDate: i.dueDate,
       warn: i.warning ? "missing_staff" : null,
     }));
-    // 連携フィードに重複伝票を混ぜる（A-4 整合性チェックのデモ）
+    // 連携フィードに重複伝票を混ぜる（A-4 整合性チェックの検知対象）
     const dup = invoices.find((i) => i.invoiceNo === FEED_DUPLICATE.invoiceNo);
     records.splice(2, 0, {
       voucherNo: FEED_DUPLICATE.voucherNo,
@@ -127,7 +127,7 @@ export default function ImportPage() {
         <Card padded={false} className="flex flex-col">
           <div className="border-b border-surface-border px-5 pb-4 pt-5">
             <SectionTitle
-              sub={`連携元: ${SOURCE_SYSTEM} ※本番では基幹システムのAPI/CSV連携に置き換わります`}
+              sub={`連携元: ${SOURCE_SYSTEM}。計上済み売掛金のうち未消込の債権一覧を取り込みます`}
               right={
                 <Button variant="ai" size="sm" onClick={runSync} disabled={syncRunning || invoicesImported} className={syncRunning ? "ai-gradient-anim" : ""}>
                   {syncRunning ? (
@@ -211,7 +211,7 @@ export default function ImportPage() {
         <Card padded={false} className="flex flex-col">
           <div className="border-b border-surface-border px-5 pb-4 pt-5">
             <SectionTitle
-              sub="全銀フォーマットの入出金明細を取得しパース（本番では銀行API/EBに置き換え）"
+              sub="銀行から全銀フォーマットの入出金明細を取得し、パース・名義正規化を行います"
               right={
                 <Button variant="ai" size="sm" onClick={runFbFetch} disabled={fbRunning || fbFetched} className={fbRunning ? "ai-gradient-anim" : ""}>
                   {fbRunning ? (
@@ -245,8 +245,8 @@ export default function ImportPage() {
             {/* 生データプレビュー */}
             <div>
               <div className="mb-1.5 flex items-center justify-between text-[11px] font-medium uppercase tracking-wide text-ink-muted">
-                <span>全銀協レコードフォーマット（モック）</span>
-                <span className="text-ink-faint">demo-bank.fb</span>
+                <span>全銀協レコードフォーマット</span>
+                <span className="text-ink-faint">fb_meisai.dat</span>
               </div>
               <div ref={rawRef} className="max-h-[150px] overflow-y-auto rounded-lg bg-navy-darker p-3 font-mono text-[11px] leading-relaxed text-accent-300/90">
                 {rawShown === 0 ? (

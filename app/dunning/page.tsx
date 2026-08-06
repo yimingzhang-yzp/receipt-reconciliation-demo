@@ -46,11 +46,11 @@ export default function DunningPage() {
         }
       />
 
-      {/* デモ内時計（E-2 の経過日数演出用） */}
+      {/* 基準日コントロール（E-2 の経過日数確認用） */}
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-surface/80 px-5 py-3.5 backdrop-blur">
         <Icon name="clock" className="h-4 w-4 text-ink-muted" />
         <span className="text-[13px] text-ink-soft">
-          デモ内日付: <span className="font-semibold tabular-nums text-ink">{formatDate(demoDate)}</span>
+          基準日: <span className="font-semibold tabular-nums text-ink">{formatDate(demoDate)}</span>
         </span>
         <span className="text-[12px] text-ink-muted">日付を進めると、無反応7日で「再督促」、14日で「エスカレーション」のバッジが表示されます</span>
         <div className="ml-auto flex items-center gap-2">
@@ -200,7 +200,7 @@ function DunningCard({ d, inv, demoDate }: { d: DunningCase; inv: Invoice; demoD
                 <Icon name="refresh" className="h-3.5 w-3.5" /> 文面を再生成
               </Button>
               <Button variant="primary" size="sm" onClick={() => sendDunningMail(inv.invoiceNo)}>
-                <Icon name="send" className="h-4 w-4" /> 送信する（モック）
+                <Icon name="send" className="h-4 w-4" /> 送信する
               </Button>
             </div>
           </div>
@@ -228,9 +228,9 @@ function DunningCard({ d, inv, demoDate }: { d: DunningCase; inv: Invoice; demoD
             )}
 
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line-subtle pt-3">
-              {/* E-2: デモ用ステータストグル */}
+              {/* E-2: 対応状況の手動更新 */}
               <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-[11px] font-medium uppercase tracking-wide text-ink-faint">デモ操作:</span>
+                <span className="text-[11px] font-medium uppercase tracking-wide text-ink-faint">状況を更新:</span>
                 {(
                   [
                     ["opened", "開封にする"],

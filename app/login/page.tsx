@@ -1,7 +1,7 @@
 import { safeNext } from "@/lib/auth";
 import { Icon } from "@/components/icons";
 
-export const metadata = { title: "ログイン｜入金消込AI Agent デモ" };
+export const metadata = { title: "ログイン｜入金消込AI" };
 
 // 共有パスワードのログイン画面（サーバーコンポーネント・素のフォーム）。
 export default function LoginPage({ searchParams }: { searchParams: { e?: string; next?: string } }) {
@@ -26,13 +26,10 @@ export default function LoginPage({ searchParams }: { searchParams: { e?: string
             <Icon name="sparkles" className="h-7 w-7" strokeWidth={2} />
           </div>
           <div>
-            <span className="mb-1.5 inline-flex items-center rounded-full border border-accent-400/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-accent-300">
-              AI RECONCILIATION
-            </span>
             <div className="neon-cyan text-xl font-bold tracking-tightish text-white">
               入金消込<span className="gradient-text">AI</span>
             </div>
-            <div className="mt-0.5 text-[11px] font-medium tracking-wide text-[#8397AB]">Receipt Reconciliation Agent — 営業デモ</div>
+            <div className="mt-0.5 text-[11px] font-medium tracking-wide text-[#8397AB]">Receipt Reconciliation Agent</div>
           </div>
         </div>
 
@@ -40,7 +37,7 @@ export default function LoginPage({ searchParams }: { searchParams: { e?: string
           <span className="accent-line pointer-events-none absolute inset-x-0 top-0 h-[3px]" aria-hidden />
           <h1 className="text-base font-semibold text-white">ログイン</h1>
           <p className="mt-1 text-xs leading-relaxed text-white/50">
-            このデモは関係者限定です。共有パスワードを入力してください。
+            本システムは関係者限定です。共有パスワードを入力してください。
           </p>
 
           {err ? (
@@ -70,9 +67,6 @@ export default function LoginPage({ searchParams }: { searchParams: { e?: string
           </button>
         </form>
 
-        <p className="mt-4 text-center text-[11px] text-white/30">
-          銀行API・メール送信・会計システム連携はすべてモックのデモ環境です
-        </p>
       </div>
     </div>
   );

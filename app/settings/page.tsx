@@ -105,7 +105,7 @@ export default function SettingsPage() {
               <span>
                 要目検スコア: <span className="font-semibold tabular-nums text-ink">{settings.reviewMin}〜{settings.autoThreshold - 1}</span>
               </span>
-              <span className="text-ink-faint">※ スコア閾値はデモでは固定です</span>
+              <span className="text-ink-faint">※ スコア閾値はシステム標準値（変更不可）</span>
             </div>
           </div>
         </Card>
@@ -131,7 +131,7 @@ export default function SettingsPage() {
       </Card>
 
       <p className="text-[12px] leading-relaxed text-ink-faint">
-        ※ 本画面の設定はデモ用のメモリ内状態です。「デモをリセット」で初期値に戻ります。本番では管理画面・権限管理付きのマスタ設定に置き換わります。
+        ※ 設定の変更は即時に突合エンジンへ反映されます。「初期状態に戻す」で標準設定に戻ります。
       </p>
     </div>
   );

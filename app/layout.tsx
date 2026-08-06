@@ -3,9 +3,9 @@ import "./globals.css";
 import { AppShell } from "@/components/AppShell";
 
 export const metadata: Metadata = {
-  title: "入金消込AI Agent デモ",
+  title: "入金消込AI",
   description:
-    "請求データと銀行入金明細（FBデータ）をAIが突合し、自動消込・目検・督促・上長承認・監査証跡まで一気通貫で見せる営業デモ",
+    "債権データと銀行入金明細（FBデータ）をAIが突合し、自動消込・目検・督促・上長承認・監査証跡まで一気通貫で行う入金消込システム",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

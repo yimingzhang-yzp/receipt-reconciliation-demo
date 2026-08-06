@@ -51,7 +51,7 @@ export default function CustomersPage() {
       <HeroBanner
         eyebrow="CUSTOMER MASTER"
         title="取引先マスタ"
-        description={`${SOURCE_SYSTEM}と同期（モック）。社名・カナ・代表者などのマスタ本体は連携元が正のため編集できません。1つの取引先に複数の振込名義（正規名義・旧社名・カナ別名・個人名義・学習済み）を紐づけて管理します。`}
+        description={`${SOURCE_SYSTEM}と同期。社名・カナ・代表者・口座などのマスタ本体は連携元が正のため編集できません。1つの取引先に複数の振込名義（正規名義・旧社名・カナ別名・個人名義・学習済み）を紐づけて管理します。`}
         right={
           <div className="rounded-xl border border-white/10 bg-white/[0.06] px-5 py-4 text-right">
             <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-[#8FB0CC]">登録振込名義</div>
@@ -66,7 +66,7 @@ export default function CustomersPage() {
       <div className="flex items-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-5 py-3.5 text-sm text-ink-soft">
         <Icon name="refresh" className="h-4 w-4 flex-none text-brand-500" />
         <span>
-          <span className="font-semibold text-brand-700">{SOURCE_SYSTEM}と同期中（モック）</span>
+          <span className="font-semibold text-brand-700">{SOURCE_SYSTEM}と同期中</span>
           — 目検キューで名義を承認すると、振込名義レコードが自動で追加されます（D-3）。
         </span>
       </div>
@@ -130,6 +130,7 @@ export default function CustomersPage() {
                 <Th>顧客ID</Th>
                 <Th>正式名（連携元が正・編集不可）</Th>
                 <Th>代表者</Th>
+                <Th>振込元口座</Th>
                 <Th>振込名義（1顧客 : N名義）</Th>
               </tr>
             </thead>
@@ -142,6 +143,14 @@ export default function CustomersPage() {
                     <div className="mt-0.5 text-[11px] text-ink-muted">{c.kana}</div>
                   </Td>
                   <Td className="whitespace-nowrap align-top text-[13px] text-ink-soft">{c.representativeKana ?? "—"}</Td>
+                  <Td className="whitespace-nowrap align-top">
+                    <div className="text-[13px] text-ink">
+                      {c.bankAccount.bankName} {c.bankAccount.branchName}
+                    </div>
+                    <div className="mt-0.5 text-[11px] tabular-nums text-ink-muted">
+                      {c.bankAccount.accountType} {c.bankAccount.accountNumber}
+                    </div>
+                  </Td>
                   <Td>
                     <div className="flex flex-wrap items-center gap-1.5">
                       {c.payerAliases.map((a) => (
@@ -174,7 +183,7 @@ export default function CustomersPage() {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="px-4 py-12 text-center text-sm text-ink-faint">
+                  <td colSpan={5} className="px-4 py-12 text-center text-sm text-ink-faint">
                     該当する取引先がありません
                   </td>
                 </tr>

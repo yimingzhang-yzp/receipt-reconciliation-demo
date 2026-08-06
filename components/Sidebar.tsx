@@ -48,9 +48,6 @@ export function Sidebar() {
 
       {/* ブランド (タイポ主体) */}
       <div className="relative px-5 pb-4 pt-5">
-        <span className="mb-2 inline-flex items-center rounded-full border border-accent-400/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-accent-300">
-          AI RECONCILIATION
-        </span>
         <div className="text-[19px] font-bold tracking-tightish text-white">
           入金消込<span className="gradient-text">AI</span>
         </div>
@@ -106,7 +103,7 @@ export function Sidebar() {
           }}
           className="flex h-9 w-full items-center gap-2.5 rounded-[10px] px-3 text-[13px] font-medium text-white/55 transition-colors hover:bg-white/[0.06] hover:text-white/85"
         >
-          <Icon name="refresh" className="h-[15px] w-[15px]" /> デモをリセット
+          <Icon name="refresh" className="h-[15px] w-[15px]" /> 初期状態に戻す
         </button>
         <form method="post" action="/api/auth/logout">
           <button

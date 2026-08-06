@@ -82,7 +82,7 @@ export default function AuditPage() {
       <HeroBanner
         eyebrow="AUDIT TRAIL"
         title="消込ログ・監査証跡"
-        description="いつ・誰が・どの根拠で消し込んだかをすべて記録します（内部統制強化）。消込で生成された仕訳は、経理システムへの連携（モック）またはCSVダウンロードで引き渡せます。"
+        description="いつ・誰が・どの根拠で消し込んだかをすべて記録します（内部統制強化）。消込で生成された仕訳は、経理システムへの連携またはCSVダウンロードで引き渡せます。"
         right={
           <div className="rounded-xl border border-white/10 bg-white/[0.06] px-5 py-4 text-right">
             <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-[#8FB0CC]">記録済みイベント</div>

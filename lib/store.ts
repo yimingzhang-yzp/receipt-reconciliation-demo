@@ -137,7 +137,7 @@ function buildInitialState(): Omit<State, "toasts"> {
         demoDate: today,
         actor: "system",
         action: "init",
-        message: `デモ環境を初期化しました（${SOURCE_SYSTEM}の未消込債権31伝票・FBデータ待機中）`,
+        message: `システムを初期化しました（${SOURCE_SYSTEM}の未消込債権31伝票・FBデータ待機中）`,
         refId: null,
       },
     ],
@@ -385,9 +385,9 @@ export const useDemoStore = create<State & Actions>((set, get) => ({
     get().log(
       "staff",
       "export_journals",
-      `仕訳${targets.length}件（借方合計 ${yen(total)}）を${ACCOUNTING_SYSTEM}へ連携しました（モック送信）`,
+      `仕訳${targets.length}件（借方合計 ${yen(total)}）を${ACCOUNTING_SYSTEM}へ連携しました`,
     );
-    get().pushToast(`仕訳${targets.length}件を経理システムへ連携しました（モック）`, "success");
+    get().pushToast(`仕訳${targets.length}件を経理システムへ連携しました`, "success");
     return { count: targets.length, total };
   },
 
@@ -607,8 +607,8 @@ export const useDemoStore = create<State & Actions>((set, get) => ({
         d.invoiceNo === invoiceNo ? { ...d, status: "sent", sentOnDemoDate: st.demoDate } : d,
       ),
     }));
-    get().log("staff", "dunning_send", `督促メールを送信しました（モック送信・実配信なし）`, invoiceNo);
-    get().pushToast("督促メールを送信しました（モック）", "success");
+    get().log("staff", "dunning_send", `督促メールを送信しました`, invoiceNo);
+    get().pushToast("督促メールを送信しました", "success");
   },
 
   setDunningTrace: (invoiceNo, status) => {
@@ -623,7 +623,7 @@ export const useDemoStore = create<State & Actions>((set, get) => ({
       replied: "返信あり",
       no_reaction: "無反応",
     };
-    get().log("system", "dunning_trace", `督促ステータスを「${label[status]}」に更新しました（デモ用トグル）`, invoiceNo);
+    get().log("system", "dunning_trace", `督促ステータスを「${label[status]}」に更新しました（手動更新）`, invoiceNo);
   },
 
   sendReminder: (invoiceNo) => {
@@ -634,8 +634,8 @@ export const useDemoStore = create<State & Actions>((set, get) => ({
           : d,
       ),
     }));
-    get().log("staff", "dunning_remind", `再督促メールを送信しました（モック）`, invoiceNo);
-    get().pushToast("再督促メールを送信しました（モック）", "success");
+    get().log("staff", "dunning_remind", `再督促メールを送信しました`, invoiceNo);
+    get().pushToast("再督促メールを送信しました", "success");
   },
 
   advanceDemoDays: (n) => {

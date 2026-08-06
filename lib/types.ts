@@ -15,11 +15,19 @@ export type PayerAlias = {
   addedBy: "sync" | "user"; // sync=連携元マスタ由来 / user=本システムで登録（目検学習など）
 };
 
+export type BankAccount = {
+  bankName: string;
+  branchName: string;
+  accountType: "普通" | "当座";
+  accountNumber: string;
+};
+
 export type Customer = {
   customerId: string; // CUST-001
   name: string; // 正式社名（マスタ本体は連携元が正・編集不可）
   kana: string;
   representativeKana: string | null; // 代表者カナ（個人名義検知用）
+  bankAccount: BankAccount; // 主要な振込元口座
   payerAliases: PayerAlias[];
 };
 
