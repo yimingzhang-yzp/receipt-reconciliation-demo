@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 3400
+    },
+    {
+      "name": "construction-management-demo",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "C:/Users/kiyok/construction-management-demo"],
+      "port": 3500
     }
   ]
 }
